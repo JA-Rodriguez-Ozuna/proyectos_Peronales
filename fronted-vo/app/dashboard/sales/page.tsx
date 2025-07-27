@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Plus, Minus, ShoppingCart } from "lucide-react"
+import { Plus, Minus, ShoppingCart, Trash2 } from "lucide-react"
 import { api } from "@/lib/api"
 
 interface Product {
@@ -119,6 +119,23 @@ export default function SalesPage() {
   }
 
   const total = cart.reduce((sum, item) => sum + item.precio * item.cantidad, 0)
+
+  const handleDeleteSale = async (id: number) => {
+    if (!confirm("¿Estás seguro de que quieres eliminar esta venta?")) return
+
+    try {
+      const response = await api.eliminarVenta(id)
+      if (response.ok) {
+        await loadData() // Recargar datos
+        alert("Venta eliminada exitosamente")
+      } else {
+        alert("Error al eliminar venta")
+      }
+    } catch (error) {
+      alert("Error de conexión")
+      console.error("Error deleting sale:", error)
+    }
+  }
 
   const processSale = async () => {
     if (cart.length === 0 || !customer.trim()) return
@@ -356,6 +373,7 @@ export default function SalesPage() {
                   <TableHead>Cantidad</TableHead>
                   <TableHead>Total</TableHead>
                   <TableHead>Fecha</TableHead>
+                  <TableHead>Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -369,6 +387,16 @@ export default function SalesPage() {
                       ${sale.total.toFixed(2)}
                     </TableCell>
                     <TableCell>{new Date(sale.fecha).toLocaleDateString()}</TableCell>
+                    <TableCell>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => handleDeleteSale(sale.id)}
+                        className="text-red-600 hover:text-red-800"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
