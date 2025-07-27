@@ -1,8 +1,6 @@
 "use client"
 
-import type React from "react"
-
-import { useState } from "react"
+import React, { useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -15,32 +13,83 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { api } from "@/lib/api"
 
 interface CustomerDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  onCustomerCreated?: () => void
 }
 
-export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
+export function CustomerDialog({ open, onOpenChange, onCustomerCreated }: CustomerDialogProps) {
   const [formData, setFormData] = useState({
-    name: "",
+    nombre: "",
     email: "",
-    phone: "",
-    address: "",
-    notes: "",
+    telefono: "",
+    direccion: "",
   })
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState("")
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    console.log("Cliente guardado:", formData)
-    onOpenChange(false)
+    setError("")
+    setIsSubmitting(true)
+
+    try {
+      // Validación básica
+      if (!formData.nombre) {
+        setError("El nombre es obligatorio")
+        setIsSubmitting(false)
+        return
+      }
+
+      // Crear cliente en el backend
+      const response = await api.crearCliente(formData)
+      
+      if (response.ok) {
+        const result = await response.json()
+        console.log("✅ Cliente creado:", result)
+        
+        // Limpiar formulario
+        setFormData({
+          nombre: "",
+          email: "",
+          telefono: "",
+          direccion: "",
+        })
+        
+        // Cerrar diálogo
+        onOpenChange(false)
+        
+        // Notificar éxito
+        alert("¡Cliente creado exitosamente!")
+        
+        // Recargar lista (si la función existe)
+        if (onCustomerCreated) {
+          onCustomerCreated()
+        }
+      } else {
+        const errorData = await response.json()
+        setError(errorData.mensaje || "Error al crear cliente")
+      }
+    } catch (error) {
+      console.error("Error creating customer:", error)
+      setError("Error de conexión con el servidor")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleCancel = () => {
     setFormData({
-      name: "",
+      nombre: "",
       email: "",
-      phone: "",
-      address: "",
-      notes: "",
+      telefono: "",
+      direccion: "",
     })
+    setError("")
+    onOpenChange(false)
   }
 
   return (
@@ -50,20 +99,23 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
           <DialogTitle>Nuevo Cliente</DialogTitle>
           <DialogDescription>Agrega un nuevo cliente al sistema.</DialogDescription>
         </DialogHeader>
+        
         <form onSubmit={handleSubmit}>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="name" className="text-right">
-                Nombre
+              <Label htmlFor="nombre" className="text-right">
+                Nombre *
               </Label>
               <Input
-                id="name"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                id="nombre"
+                value={formData.nombre}
+                onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
                 className="col-span-3"
+                placeholder="Nombre del cliente"
                 required
               />
             </div>
+            
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="email" className="text-right">
                 Email
@@ -74,45 +126,53 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 className="col-span-3"
-                required
+                placeholder="cliente@email.com"
               />
             </div>
+            
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="phone" className="text-right">
+              <Label htmlFor="telefono" className="text-right">
                 Teléfono
               </Label>
               <Input
-                id="phone"
-                value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                id="telefono"
+                value={formData.telefono}
+                onChange={(e) => setFormData({ ...formData, telefono: e.target.value })}
                 className="col-span-3"
+                placeholder="+1 234 567 8900"
               />
             </div>
+            
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="address" className="text-right">
+              <Label htmlFor="direccion" className="text-right">
                 Dirección
               </Label>
               <Textarea
-                id="address"
-                value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                id="direccion"
+                value={formData.direccion}
+                onChange={(e) => setFormData({ ...formData, direccion: e.target.value })}
                 className="col-span-3"
+                placeholder="Dirección del cliente"
+                rows={2}
               />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="notes" className="text-right">
-                Notas
-              </Label>
-              <Textarea
-                id="notes"
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                className="col-span-3"
-              />
-            </div>
+            
+
+
+            {error && (
+              <div className="col-span-4 text-red-600 text-sm text-center">
+                {error}
+              </div>
+            )}
           </div>
+          
           <DialogFooter>
-            <Button type="submit">Guardar Cliente</Button>
+            <Button type="button" variant="outline" onClick={handleCancel}>
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "Guardando..." : "Guardar Cliente"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

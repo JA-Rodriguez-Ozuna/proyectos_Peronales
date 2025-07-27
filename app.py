@@ -272,10 +272,13 @@ def eliminar_pedido(id):
 def get_ventas():
     conn = get_db_connection()
     ventas = conn.execute('''
-        SELECT v.*, p.nombre as producto_nombre, c.nombre as cliente_nombre 
+        SELECT v.*, 
+               c.nombre as cliente_nombre, 
+               p.nombre as producto_nombre 
         FROM ventas v 
-        JOIN productos p ON v.producto_id = p.id
         LEFT JOIN clientes c ON v.cliente_id = c.id
+        LEFT JOIN productos p ON v.producto_id = p.id
+        ORDER BY v.id DESC
     ''').fetchall()
     conn.close()
     return jsonify([dict(venta) for venta in ventas])

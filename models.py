@@ -79,11 +79,22 @@ def init_db():
         )
     ''')
     
+    # Agregar columnas faltantes
+    add_missing_columns(cursor)
+    
     # Insertar usuarios por defecto si no existen
     seed_users(cursor)
     
     conn.commit()
     conn.close()
+
+def add_missing_columns(cursor):
+    """Agrega columnas que puedan faltar"""
+    try:
+        cursor.execute("ALTER TABLE pedido_productos ADD COLUMN assigned_payment REAL DEFAULT 0")
+        print("✅ Agregada columna assigned_payment a pedido_productos")
+    except sqlite3.OperationalError:
+        pass  # Ya existe
 
 def seed_users(cursor):
     """Poblar con usuarios predefinidos para Plus Graphics"""
@@ -109,6 +120,3 @@ def seed_users(cursor):
 if __name__ == '__main__':
     init_db()
     print("Base de datos inicializada correctamente")
-
-
-
