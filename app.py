@@ -321,6 +321,136 @@ def initialize_database():
     init_db()
     return jsonify({'mensaje': 'Base de datos inicializada correctamente'})
 
+
+@app.route('/api/reset-sequences', methods=['POST'])
+def reset_sequences():
+    """Reiniciar secuencias de ID cuando las tablas están vacías"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # Obtener datos del request para saber qué tablas resetear
+        data = request.json if request.json else {}
+        force_reset = data.get('force', False)
+        specific_tables = data.get('tables', [])
+        
+        # Lista de todas las tablas con autoincrement
+        all_tables = ['productos', 'clientes', 'pedidos', 'ventas', 'pedido_productos']
+        tables_to_check = specific_tables if specific_tables else all_tables
+        
+        tables_to_reset = []
+        tables_with_data = []
+        
+        # Verificar cada tabla
+        for table in tables_to_check:
+            count = cursor.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0]
+            if count == 0:
+                tables_to_reset.append(table)
+            else:
+                tables_with_data.append(table)
+        
+        # Si force_reset es True, resetear también tablas con datos (PELIGROSO)
+        if force_reset and tables_with_data:
+            tables_to_reset.extend(tables_with_data)
+        
+        # Resetear secuencias
+        for table in tables_to_reset:
+            cursor.execute(f"DELETE FROM sqlite_sequence WHERE name='{table}'")
+        
+        conn.commit()
+        conn.close()
+        
+        result = {
+            'mensaje': f'Secuencias reseteadas para: {", ".join(tables_to_reset) if tables_to_reset else "ninguna tabla"}',
+            'tablas_reseteadas': tables_to_reset,
+            'tablas_con_datos': tables_with_data
+        }
+        
+        if tables_with_data and not force_reset:
+            result['advertencia'] = f'Las siguientes tablas tienen datos y no fueron reseteadas: {", ".join(tables_with_data)}. Usa force=true para forzar el reseteo.'
+        
+        return jsonify(result)
+    
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/reset-sequences/<string:table_name>', methods=['POST'])
+def reset_single_sequence(table_name):
+    """Reiniciar secuencia de una tabla específica"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Validar nombre de tabla
+    valid_tables = ['productos', 'clientes', 'pedidos', 'ventas', 'pedido_productos']
+    if table_name not in valid_tables:
+        conn.close()
+        return jsonify({'error': f'Tabla inválida. Tablas válidas: {", ".join(valid_tables)}'}), 400
+    
+    try:
+        data = request.json if request.json else {}
+        force = data.get('force', False)
+        
+        # Verificar si la tabla tiene datos
+        count = cursor.execute(f'SELECT COUNT(*) FROM {table_name}').fetchone()[0]
+        
+        if count > 0 and not force:
+            conn.close()
+            return jsonify({
+                'error': f'La tabla {table_name} tiene {count} registros. Usa force=true para forzar el reseteo.',
+                'registros': count
+            }), 400
+        
+        # Resetear la secuencia
+        cursor.execute(f"DELETE FROM sqlite_sequence WHERE name='{table_name}'")
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'mensaje': f'Secuencia de {table_name} reseteada correctamente',
+            'tabla': table_name,
+            'registros_antes': count,
+            'forzado': force
+        })
+    
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/sequences/status', methods=['GET'])
+def get_sequences_status():
+    """Obtener estado actual de todas las secuencias"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # Obtener todas las secuencias
+        sequences = cursor.execute('SELECT name, seq FROM sqlite_sequence ORDER BY name').fetchall()
+        
+        # Obtener conteo de registros por tabla
+        status = []
+        for seq_name, seq_value in sequences:
+            count = cursor.execute(f'SELECT COUNT(*) FROM {seq_name}').fetchone()[0]
+            max_id = cursor.execute(f'SELECT MAX(id) FROM {seq_name}').fetchone()[0] or 0
+            
+            status.append({
+                'tabla': seq_name,
+                'secuencia_actual': seq_value,
+                'registros_actuales': count,
+                'id_maximo': max_id,
+                'necesita_reset': count == 0 and seq_value > 0
+            })
+        
+        conn.close()
+        return jsonify({
+            'secuencias': status,
+            'tablas_vacias_con_secuencia': [s for s in status if s['necesita_reset']]
+        })
+    
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     init_db()  # Inicializar la base de datos al arrancar
     app.run(debug=True)

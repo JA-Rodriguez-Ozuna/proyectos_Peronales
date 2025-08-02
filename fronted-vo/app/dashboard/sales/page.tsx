@@ -33,7 +33,7 @@ export default function SalesPage() {
   const [sales, setSales] = useState<any[]>([])
   const [cart, setCart] = useState<CartItem[]>([])
   const [selectedProduct, setSelectedProduct] = useState("")
-  const [customer, setCustomer] = useState("")
+  const [selectedCustomer, setSelectedCustomer] = useState("")
   const [loading, setLoading] = useState(true)
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState("")
@@ -120,50 +120,20 @@ export default function SalesPage() {
 
   const total = cart.reduce((sum, item) => sum + item.precio * item.cantidad, 0)
 
-  const handleDeleteSale = async (id: number) => {
-    if (!confirm("¿Estás seguro de que quieres eliminar esta venta?")) return
-
-    try {
-      const response = await api.eliminarVenta(id)
-      if (response.ok) {
-        await loadData() // Recargar datos
-        alert("Venta eliminada exitosamente")
-      } else {
-        alert("Error al eliminar venta")
-      }
-    } catch (error) {
-      alert("Error de conexión")
-      console.error("Error deleting sale:", error)
-    }
-  }
-
   const processSale = async () => {
-    if (cart.length === 0 || !customer.trim()) return
+    if (cart.length === 0 || !selectedCustomer) return
 
     setIsProcessing(true)
 
     try {
-      // Buscar cliente por nombre (o crear uno temporal)
+      // Buscar cliente por nombre
       let clienteId = null
       const clienteExistente = customers.find(c => 
-        c.nombre.toLowerCase() === customer.trim().toLowerCase()
+        c.nombre === selectedCustomer
       )
       
       if (clienteExistente) {
         clienteId = clienteExistente.id
-      } else {
-        // Crear cliente temporal
-        const nuevoClienteRes = await api.crearCliente({
-          nombre: customer.trim(),
-          email: "",
-          telefono: "",
-          direccion: ""
-        })
-        
-        if (nuevoClienteRes.ok) {
-          const nuevoCliente = await nuevoClienteRes.json()
-          clienteId = nuevoCliente.id || null
-        }
       }
 
       // Procesar cada item del carrito como una venta separada
@@ -182,7 +152,7 @@ export default function SalesPage() {
       }
 
       console.log("✅ Venta procesada:", { 
-        customer, 
+        cliente: selectedCustomer, 
         clienteId,
         cart, 
         total,
@@ -194,15 +164,32 @@ export default function SalesPage() {
       
       // Limpiar formulario
       setCart([])
-      setCustomer("")
+      setSelectedCustomer("")
       
-      alert(`¡Venta procesada exitosamente!\nTotal: ${total.toFixed(2)}`)
+      alert(`¡Venta procesada exitosamente!\nTotal: $${total.toFixed(2)}`)
       
     } catch (error) {
       console.error("Error processing sale:", error)
       alert("Error al procesar la venta")
     } finally {
       setIsProcessing(false)
+    }
+  }
+
+  const handleDeleteSale = async (id: number) => {
+    if (!confirm("¿Estás seguro de que quieres eliminar esta venta?")) return
+
+    try {
+      const response = await api.eliminarVenta(id)
+      if (response.ok) {
+        await loadData() // Recargar datos
+        alert("Venta eliminada exitosamente")
+      } else {
+        alert("Error al eliminar venta")
+      }
+    } catch (error) {
+      alert("Error de conexión")
+      console.error("Error deleting sale:", error)
     }
   }
 
@@ -241,13 +228,19 @@ export default function SalesPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <Label htmlFor="customer">Cliente</Label>
-              <Input
-                id="customer"
-                placeholder="Nombre del cliente"
-                value={customer}
-                onChange={(e) => setCustomer(e.target.value)}
-              />
+              <Label htmlFor="customer">Cliente *</Label>
+              <Select value={selectedCustomer} onValueChange={setSelectedCustomer}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar cliente" />
+                </SelectTrigger>
+                <SelectContent>
+                  {customers.map((customer) => (
+                    <SelectItem key={customer.id} value={customer.nombre}>
+                      {customer.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="flex space-x-2">
@@ -277,6 +270,12 @@ export default function SalesPage() {
             {error && (
               <div className="text-red-600 text-sm">
                 {error}
+              </div>
+            )}
+
+            {customers.length === 0 && !loading && (
+              <div className="text-yellow-600 text-sm">
+                No hay clientes registrados. Agrega clientes primero.
               </div>
             )}
           </CardContent>
@@ -344,7 +343,7 @@ export default function SalesPage() {
                   <Button 
                     className="w-full mt-4" 
                     onClick={processSale} 
-                    disabled={!customer.trim() || cart.length === 0 || isProcessing}
+                    disabled={!selectedCustomer || cart.length === 0 || isProcessing}
                   >
                     {isProcessing ? "Procesando..." : "Procesar Venta"}
                   </Button>
