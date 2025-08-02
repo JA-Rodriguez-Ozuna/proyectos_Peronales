@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from models import init_db
 
 # Conexión a la base de datos
@@ -267,6 +267,22 @@ def eliminar_pedido(id):
     conn.close()
     return jsonify({'mensaje': 'Pedido eliminado'})
 
+@app.route('/api/pedidos/pendientes', methods=['GET'])
+def get_pedidos_pendientes():
+    """Obtener pedidos que no tienen venta asociada y están listos para facturar"""
+    conn = get_db_connection()
+    pedidos = conn.execute('''
+        SELECT p.*, c.nombre as cliente_nombre
+        FROM pedidos p
+        LEFT JOIN clientes c ON p.cliente_id = c.id
+        LEFT JOIN ventas v ON p.id = v.pedido_id
+        WHERE v.id IS NULL
+        AND p.estado = 'completado'
+        ORDER BY p.fecha DESC
+    ''').fetchall()
+    conn.close()
+    return jsonify([dict(pedido) for pedido in pedidos])
+
 # -------------------- RUTAS PARA VENTAS --------------------
 @app.route('/api/ventas', methods=['GET'])
 def get_ventas():
@@ -274,10 +290,12 @@ def get_ventas():
     ventas = conn.execute('''
         SELECT v.*, 
                c.nombre as cliente_nombre, 
-               p.nombre as producto_nombre 
+               p.nombre as producto_nombre,
+               ped.id as pedido_numero
         FROM ventas v 
         LEFT JOIN clientes c ON v.cliente_id = c.id
         LEFT JOIN productos p ON v.producto_id = p.id
+        LEFT JOIN pedidos ped ON v.pedido_id = ped.id
         ORDER BY v.id DESC
     ''').fetchall()
     conn.close()
@@ -287,25 +305,94 @@ def get_ventas():
 def registrar_venta():
     data = request.json
     conn = get_db_connection()
+    cursor = conn.cursor()
     
-    # Calcular el total (precio * cantidad)
-    producto = conn.execute('SELECT precio FROM productos WHERE id = ?', 
-                           (data['producto_id'],)).fetchone()
-    total = producto['precio'] * data['cantidad']
-    
-    conn.execute('''
-        INSERT INTO ventas (cliente_id, producto_id, cantidad, total, fecha) 
-        VALUES (?, ?, ?, ?, ?)
-    ''', (
-        data.get('cliente_id'),
-        data['producto_id'], 
-        data['cantidad'], 
-        total, 
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    ))
-    conn.commit()
-    conn.close()
-    return jsonify({'mensaje': 'Venta registrada'}), 201
+    try:
+        # Si viene pedido_id, obtener datos del pedido
+        pedido_id = data.get('pedido_id')
+        if pedido_id:
+            pedido = cursor.execute('SELECT * FROM pedidos WHERE id = ?', (pedido_id,)).fetchone()
+            if not pedido:
+                conn.close()
+                return jsonify({'error': 'Pedido no encontrado'}), 404
+            
+            # Usar datos del pedido
+            cliente_id = pedido['cliente_id']
+            # Para el total, usar el monto del pedido o calcular desde productos
+            productos_pedido = cursor.execute('''
+                SELECT pp.cantidad, p.precio 
+                FROM pedido_productos pp 
+                JOIN productos p ON pp.producto_id = p.id 
+                WHERE pp.pedido_id = ?
+            ''', (pedido_id,)).fetchall()
+            
+            total = sum(prod['cantidad'] * prod['precio'] for prod in productos_pedido)
+        else:
+            # Método tradicional - calcular desde producto individual
+            producto = cursor.execute('SELECT precio FROM productos WHERE id = ?', 
+                                   (data['producto_id'],)).fetchone()
+            if not producto:
+                conn.close()
+                return jsonify({'error': 'Producto no encontrado'}), 404
+            
+            total = producto['precio'] * data['cantidad']
+            cliente_id = data.get('cliente_id')
+        
+        # Determinar estado de pago
+        estado_pago = data.get('estado_pago', 'pendiente')  # Default pendiente
+        
+        # Crear la venta
+        cursor.execute('''
+            INSERT INTO ventas (cliente_id, producto_id, cantidad, total, fecha, pedido_id, estado_pago) 
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            cliente_id,
+            data.get('producto_id'),  # Puede ser None si viene de pedido con múltiples productos
+            data.get('cantidad', 1), 
+            total, 
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            pedido_id,
+            estado_pago
+        ))
+        
+        venta_id = cursor.lastrowid
+        
+        # Si la venta está pendiente de pago, crear cuenta por cobrar automáticamente
+        if estado_pago == 'pendiente':
+            numero_factura = f"FAC-{venta_id:04d}"
+            fecha_vencimiento = datetime.now().date() + timedelta(days=30)  # 30 días para pagar
+            
+            cursor.execute('''
+                INSERT INTO cuentas_por_cobrar 
+                (numero_factura, cliente_id, venta_id, pedido_id, monto, saldo, fecha_vencimiento, estado)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                numero_factura,
+                cliente_id,
+                venta_id,
+                pedido_id,
+                total,
+                total,  # saldo inicial = monto total
+                fecha_vencimiento.strftime("%Y-%m-%d"),
+                'pendiente'
+            ))
+        
+        # Si hay pedido_id, actualizar estado del pedido
+        if pedido_id and estado_pago == 'pagado':
+            cursor.execute('UPDATE pedidos SET estado_pago = ? WHERE id = ?', ('pagado', pedido_id))
+        
+        conn.commit()
+        conn.close()
+        return jsonify({
+            'mensaje': 'Venta registrada',
+            'venta_id': venta_id,
+            'cuenta_por_cobrar_generada': estado_pago == 'pendiente'
+        }), 201
+        
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/ventas/<int:id>', methods=['DELETE'])
 def eliminar_venta(id):
@@ -314,6 +401,444 @@ def eliminar_venta(id):
     conn.commit()
     conn.close()
     return jsonify({'mensaje': 'Venta eliminada'})
+
+# -------------------- RUTAS PARA CUENTAS POR COBRAR --------------------
+@app.route('/api/cuentas-por-cobrar', methods=['GET'])
+def get_cuentas_por_cobrar():
+    conn = get_db_connection()
+    cuentas = conn.execute('''
+        SELECT c.*, 
+               cl.nombre as cliente_nombre,
+               p.id as pedido_numero
+        FROM cuentas_por_cobrar c
+        LEFT JOIN clientes cl ON c.cliente_id = cl.id
+        LEFT JOIN pedidos p ON c.pedido_id = p.id
+        ORDER BY c.fecha_vencimiento ASC
+    ''').fetchall()
+    
+    # Calcular días vencidos para cada cuenta
+    cuentas_con_datos = []
+    for cuenta in cuentas:
+        cuenta_dict = dict(cuenta)
+        
+        # Calcular días vencidos
+        from datetime import datetime, date
+        if cuenta['fecha_vencimiento']:
+            try:
+                fecha_venc = datetime.strptime(cuenta['fecha_vencimiento'], '%Y-%m-%d').date()
+                hoy = date.today()
+                dias_diff = (hoy - fecha_venc).days
+                cuenta_dict['dias_vencido'] = max(0, dias_diff)
+                
+                # Actualizar estado según días vencidos
+                if cuenta_dict['estado'] == 'pendiente' and dias_diff > 0:
+                    cuenta_dict['estado'] = 'vencido'
+                elif cuenta_dict['estado'] == 'vencido' and dias_diff <= 0:
+                    cuenta_dict['estado'] = 'pendiente'
+            except:
+                cuenta_dict['dias_vencido'] = 0
+        
+        cuentas_con_datos.append(cuenta_dict)
+    
+    conn.close()
+    return jsonify(cuentas_con_datos)
+
+@app.route('/api/cuentas-por-cobrar', methods=['POST'])
+def crear_cuenta_por_cobrar():
+    data = request.json
+    conn = get_db_connection()
+    
+    # Calcular saldo inicial (monto - monto_pagado)
+    monto = data['monto']
+    monto_pagado = data.get('monto_pagado', 0)
+    saldo = monto - monto_pagado
+    
+    # Determinar estado inicial
+    estado = 'pagado' if saldo <= 0 else data.get('estado', 'pendiente')
+    
+    conn.execute('''
+        INSERT INTO cuentas_por_cobrar 
+        (numero_factura, cliente_id, pedido_id, monto, monto_pagado, saldo, 
+         fecha_vencimiento, estado, notas) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        data['numero_factura'],
+        data['cliente_id'],
+        data.get('pedido_id'),
+        monto,
+        monto_pagado,
+        saldo,
+        data['fecha_vencimiento'],
+        estado,
+        data.get('notas', '')
+    ))
+    conn.commit()
+    conn.close()
+    return jsonify({'mensaje': 'Cuenta por cobrar creada'}), 201
+
+@app.route('/api/cuentas-por-cobrar/<int:id>', methods=['PUT'])
+def actualizar_cuenta_por_cobrar(id):
+    data = request.json
+    conn = get_db_connection()
+    
+    # Si es una actualización de pago
+    if 'monto_pagado' in data:
+        # Obtener datos actuales
+        cuenta_actual = conn.execute('SELECT * FROM cuentas_por_cobrar WHERE id = ?', (id,)).fetchone()
+        if not cuenta_actual:
+            conn.close()
+            return jsonify({'error': 'Cuenta no encontrada'}), 404
+        
+        # Calcular nuevo saldo
+        monto = cuenta_actual['monto']
+        nuevo_monto_pagado = data['monto_pagado']
+        nuevo_saldo = monto - nuevo_monto_pagado
+        
+        # Actualizar estado según saldo
+        nuevo_estado = 'pagado' if nuevo_saldo <= 0 else data.get('estado', cuenta_actual['estado'])
+        
+        conn.execute('''
+            UPDATE cuentas_por_cobrar 
+            SET monto_pagado = ?, saldo = ?, estado = ?, notas = ?
+            WHERE id = ?
+        ''', (nuevo_monto_pagado, nuevo_saldo, nuevo_estado, data.get('notas', cuenta_actual['notas']), id))
+    else:
+        # Actualización completa
+        monto = data.get('monto')
+        monto_pagado = data.get('monto_pagado', 0)
+        saldo = monto - monto_pagado
+        estado = 'pagado' if saldo <= 0 else data.get('estado', 'pendiente')
+        
+        conn.execute('''
+            UPDATE cuentas_por_cobrar 
+            SET numero_factura = ?, cliente_id = ?, pedido_id = ?, monto = ?, 
+                monto_pagado = ?, saldo = ?, fecha_vencimiento = ?, estado = ?, notas = ?
+            WHERE id = ?
+        ''', (
+            data['numero_factura'], data['cliente_id'], data.get('pedido_id'),
+            monto, monto_pagado, saldo, data['fecha_vencimiento'], estado,
+            data.get('notas', ''), id
+        ))
+    
+    conn.commit()
+    conn.close()
+    return jsonify({'mensaje': 'Cuenta por cobrar actualizada'})
+
+@app.route('/api/cuentas-por-cobrar/<int:id>', methods=['DELETE'])
+def eliminar_cuenta_por_cobrar(id):
+    conn = get_db_connection()
+    conn.execute('DELETE FROM cuentas_por_cobrar WHERE id = ?', (id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'mensaje': 'Cuenta por cobrar eliminada'})
+
+@app.route('/api/cuentas-por-cobrar/stats', methods=['GET'])
+def estadisticas_cuentas_por_cobrar():
+    conn = get_db_connection()
+    
+    # Total por cobrar
+    total_result = conn.execute('SELECT SUM(saldo) FROM cuentas_por_cobrar WHERE estado != "pagado"').fetchone()
+    total_por_cobrar = total_result[0] or 0
+    
+    # Facturas pendientes
+    pendientes_result = conn.execute('SELECT COUNT(*) FROM cuentas_por_cobrar WHERE estado = "pendiente"').fetchone()
+    facturas_pendientes = pendientes_result[0] or 0
+    
+    # Facturas vencidas
+    vencidas_result = conn.execute('SELECT COUNT(*) FROM cuentas_por_cobrar WHERE estado = "vencido"').fetchone()
+    facturas_vencidas = vencidas_result[0] or 0
+    
+    # Total de facturas
+    total_facturas_result = conn.execute('SELECT COUNT(*) FROM cuentas_por_cobrar').fetchone()
+    total_facturas = total_facturas_result[0] or 0
+    
+    conn.close()
+    
+    return jsonify({
+        'total_por_cobrar': total_por_cobrar,
+        'facturas_pendientes': facturas_pendientes,
+        'facturas_vencidas': facturas_vencidas,
+        'total_facturas': total_facturas
+    })
+
+@app.route('/api/cuentas-por-cobrar/<int:id>/marcar-pagado', methods=['PUT'])
+def marcar_cuenta_como_pagada(id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # Obtener cuenta actual
+        cuenta = cursor.execute('SELECT * FROM cuentas_por_cobrar WHERE id = ?', (id,)).fetchone()
+        if not cuenta:
+            conn.close()
+            return jsonify({'error': 'Cuenta no encontrada'}), 404
+        
+        # Marcar cuenta como completamente pagada
+        cursor.execute('''
+            UPDATE cuentas_por_cobrar 
+            SET monto_pagado = monto, saldo = 0, estado = 'pagado'
+            WHERE id = ?
+        ''', (id,))
+        
+        # Actualizar la venta relacionada como pagada
+        if cuenta['venta_id']:
+            cursor.execute('''
+                UPDATE ventas 
+                SET estado_pago = 'pagado'
+                WHERE id = ?
+            ''', (cuenta['venta_id'],))
+        
+        # Actualizar el pedido relacionado como pagado
+        if cuenta['pedido_id']:
+            cursor.execute('''
+                UPDATE pedidos 
+                SET estado_pago = 'pagado'
+                WHERE id = ?
+            ''', (cuenta['pedido_id'],))
+        
+        conn.commit()
+        conn.close()
+        return jsonify({
+            'mensaje': 'Cuenta marcada como pagada',
+            'venta_actualizada': bool(cuenta['venta_id']),
+            'pedido_actualizado': bool(cuenta['pedido_id'])
+        })
+        
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+# -------------------- RUTAS PARA CUENTAS POR PAGAR --------------------
+@app.route('/api/cuentas-por-pagar', methods=['GET'])
+def get_cuentas_por_pagar():
+    conn = get_db_connection()
+    cuentas = conn.execute('''
+        SELECT *
+        FROM cuentas_por_pagar
+        ORDER BY fecha_vencimiento ASC
+    ''').fetchall()
+    
+    # Calcular días vencidos para cada cuenta
+    cuentas_con_datos = []
+    for cuenta in cuentas:
+        cuenta_dict = dict(cuenta)
+        
+        # Calcular días vencidos
+        from datetime import datetime, date
+        if cuenta['fecha_vencimiento']:
+            try:
+                fecha_venc = datetime.strptime(cuenta['fecha_vencimiento'], '%Y-%m-%d').date()
+                hoy = date.today()
+                dias_diff = (hoy - fecha_venc).days
+                cuenta_dict['dias_vencido'] = max(0, dias_diff)
+                
+                # Actualizar estado según días vencidos
+                if cuenta_dict['estado'] == 'pendiente' and dias_diff > 0:
+                    cuenta_dict['estado'] = 'vencido'
+                elif cuenta_dict['estado'] == 'vencido' and dias_diff <= 0:
+                    cuenta_dict['estado'] = 'pendiente'
+            except:
+                cuenta_dict['dias_vencido'] = 0
+        
+        cuentas_con_datos.append(cuenta_dict)
+    
+    conn.close()
+    return jsonify(cuentas_con_datos)
+
+@app.route('/api/cuentas-por-pagar', methods=['POST'])
+def crear_cuenta_por_pagar():
+    data = request.json
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # Auto-generar codigo_factura: BILL001, BILL002, etc
+        ultimo_codigo = cursor.execute('''
+            SELECT codigo_factura FROM cuentas_por_pagar 
+            WHERE codigo_factura LIKE 'BILL%' 
+            ORDER BY id DESC LIMIT 1
+        ''').fetchone()
+        
+        if ultimo_codigo:
+            # Extraer numero y sumar 1
+            numero_str = ultimo_codigo[0].replace('BILL', '')
+            try:
+                numero = int(numero_str) + 1
+            except:
+                numero = 1
+        else:
+            numero = 1
+        
+        codigo_factura = f"BILL{numero:03d}"
+        
+        # Calcular saldo inicial (monto - monto_pagado)
+        monto = data['monto']
+        monto_pagado = data.get('monto_pagado', 0)
+        saldo = monto - monto_pagado
+        
+        # Determinar estado inicial
+        estado = 'pagado' if saldo <= 0 else data.get('estado', 'pendiente')
+        
+        cursor.execute('''
+            INSERT INTO cuentas_por_pagar 
+            (codigo_factura, proveedor, monto, monto_pagado, saldo, 
+             fecha_vencimiento, estado, descripcion) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            codigo_factura,
+            data['proveedor'],
+            monto,
+            monto_pagado,
+            saldo,
+            data['fecha_vencimiento'],
+            estado,
+            data.get('descripcion', '')
+        ))
+        
+        conn.commit()
+        conn.close()
+        return jsonify({
+            'mensaje': 'Cuenta por pagar creada',
+            'codigo_factura': codigo_factura
+        }), 201
+        
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cuentas-por-pagar/<int:id>', methods=['PUT'])
+def actualizar_cuenta_por_pagar(id):
+    data = request.json
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # Si es una actualización de pago
+        if 'monto_pagado' in data:
+            # Obtener datos actuales
+            cuenta_actual = cursor.execute('SELECT * FROM cuentas_por_pagar WHERE id = ?', (id,)).fetchone()
+            if not cuenta_actual:
+                conn.close()
+                return jsonify({'error': 'Cuenta no encontrada'}), 404
+            
+            # Calcular nuevo saldo
+            monto = cuenta_actual['monto']
+            nuevo_monto_pagado = data['monto_pagado']
+            nuevo_saldo = monto - nuevo_monto_pagado
+            
+            # Actualizar estado según saldo
+            nuevo_estado = 'pagado' if nuevo_saldo <= 0 else data.get('estado', cuenta_actual['estado'])
+            fecha_pago = datetime.now().strftime("%Y-%m-%d %H:%M:%S") if nuevo_saldo <= 0 else cuenta_actual['fecha_pago']
+            
+            cursor.execute('''
+                UPDATE cuentas_por_pagar 
+                SET monto_pagado = ?, saldo = ?, estado = ?, fecha_pago = ?, descripcion = ?
+                WHERE id = ?
+            ''', (nuevo_monto_pagado, nuevo_saldo, nuevo_estado, fecha_pago, 
+                  data.get('descripcion', cuenta_actual['descripcion']), id))
+        else:
+            # Actualización completa
+            monto = data.get('monto')
+            monto_pagado = data.get('monto_pagado', 0)
+            saldo = monto - monto_pagado
+            estado = 'pagado' if saldo <= 0 else data.get('estado', 'pendiente')
+            
+            cursor.execute('''
+                UPDATE cuentas_por_pagar 
+                SET proveedor = ?, monto = ?, monto_pagado = ?, saldo = ?, 
+                    fecha_vencimiento = ?, estado = ?, descripcion = ?
+                WHERE id = ?
+            ''', (
+                data['proveedor'], monto, monto_pagado, saldo, 
+                data['fecha_vencimiento'], estado, data.get('descripcion', ''), id
+            ))
+        
+        conn.commit()
+        conn.close()
+        return jsonify({'mensaje': 'Cuenta por pagar actualizada'})
+        
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cuentas-por-pagar/<int:id>', methods=['DELETE'])
+def eliminar_cuenta_por_pagar(id):
+    conn = get_db_connection()
+    conn.execute('DELETE FROM cuentas_por_pagar WHERE id = ?', (id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'mensaje': 'Cuenta por pagar eliminada'})
+
+@app.route('/api/cuentas-por-pagar/stats', methods=['GET'])
+def estadisticas_cuentas_por_pagar():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # Total por pagar
+        total_result = cursor.execute('SELECT SUM(saldo) FROM cuentas_por_pagar WHERE estado != "pagado"').fetchone()
+        total_por_pagar = total_result[0] or 0
+        
+        # Facturas pendientes
+        pendientes_result = cursor.execute('SELECT COUNT(*) FROM cuentas_por_pagar WHERE estado = "pendiente"').fetchone()
+        facturas_pendientes = pendientes_result[0] or 0
+        
+        # Facturas vencidas
+        vencidas_result = cursor.execute('SELECT COUNT(*) FROM cuentas_por_pagar WHERE estado = "vencido"').fetchone()
+        facturas_vencidas = vencidas_result[0] or 0
+        
+        # Próximas a vencer (7 días)
+        from datetime import date, timedelta
+        fecha_limite = (date.today() + timedelta(days=7)).strftime('%Y-%m-%d')
+        proximas_result = cursor.execute('''
+            SELECT COUNT(*) FROM cuentas_por_pagar 
+            WHERE estado = "pendiente" AND fecha_vencimiento <= ?
+        ''', (fecha_limite,)).fetchone()
+        proximas_vencer = proximas_result[0] or 0
+        
+        conn.close()
+        
+        return jsonify({
+            'total_por_pagar': total_por_pagar,
+            'facturas_pendientes': facturas_pendientes,
+            'facturas_vencidas': facturas_vencidas,
+            'proximas_vencer': proximas_vencer
+        })
+        
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cuentas-por-pagar/<int:id>/marcar-pagado', methods=['PUT'])
+def marcar_cuenta_por_pagar_como_pagada(id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # Obtener cuenta actual
+        cuenta = cursor.execute('SELECT * FROM cuentas_por_pagar WHERE id = ?', (id,)).fetchone()
+        if not cuenta:
+            conn.close()
+            return jsonify({'error': 'Cuenta no encontrada'}), 404
+        
+        # Marcar como completamente pagada
+        cursor.execute('''
+            UPDATE cuentas_por_pagar 
+            SET monto_pagado = monto, saldo = 0, estado = 'pagado', fecha_pago = ?
+            WHERE id = ?
+        ''', (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), id))
+        
+        conn.commit()
+        conn.close()
+        return jsonify({'mensaje': 'Cuenta marcada como pagada'})
+        
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return jsonify({'error': str(e)}), 500
 
 # -------------------- RUTA DE INICIALIZACIÓN --------------------
 @app.route('/api/init-db', methods=['POST'])

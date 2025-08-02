@@ -79,6 +79,44 @@ def init_db():
         )
     ''')
     
+    # Tabla de cuentas por cobrar
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS cuentas_por_cobrar (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            numero_factura TEXT UNIQUE NOT NULL,
+            cliente_id INTEGER NOT NULL,
+            pedido_id INTEGER,
+            monto REAL NOT NULL,
+            monto_pagado REAL DEFAULT 0,
+            saldo REAL NOT NULL,
+            fecha_vencimiento DATE NOT NULL,
+            estado TEXT DEFAULT 'pendiente',
+            dias_vencido INTEGER DEFAULT 0,
+            fecha_creacion TEXT DEFAULT CURRENT_TIMESTAMP,
+            notas TEXT,
+            FOREIGN KEY (cliente_id) REFERENCES clientes(id),
+            FOREIGN KEY (pedido_id) REFERENCES pedidos(id)
+        )
+    ''')
+    
+    # Tabla de cuentas por pagar
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS cuentas_por_pagar (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            codigo_factura TEXT UNIQUE NOT NULL,
+            proveedor TEXT NOT NULL,
+            monto REAL NOT NULL,
+            monto_pagado REAL DEFAULT 0,
+            saldo REAL NOT NULL,
+            fecha_vencimiento DATE NOT NULL,
+            estado TEXT DEFAULT 'pendiente',
+            descripcion TEXT,
+            fecha_creacion TEXT DEFAULT CURRENT_TIMESTAMP,
+            fecha_pago TEXT,
+            dias_vencido INTEGER DEFAULT 0
+        )
+    ''')
+    
     # Agregar columnas faltantes
     add_missing_columns(cursor)
     
@@ -92,7 +130,37 @@ def add_missing_columns(cursor):
     """Agrega columnas que puedan faltar"""
     try:
         cursor.execute("ALTER TABLE pedido_productos ADD COLUMN assigned_payment REAL DEFAULT 0")
-        print("✅ Agregada columna assigned_payment a pedido_productos")
+        print("OK Agregada columna assigned_payment a pedido_productos")
+    except sqlite3.OperationalError:
+        pass  # Ya existe
+    
+    # Agregar estado_pago a pedidos (más específico que pago_realizado)
+    try:
+        cursor.execute("ALTER TABLE pedidos ADD COLUMN estado_pago TEXT DEFAULT 'no_pagado'")
+        print("OK Agregada columna estado_pago a pedidos")
+    except sqlite3.OperationalError:
+        pass  # Ya existe
+    
+    # Agregar pedido_id a ventas para conectar con pedidos
+    try:
+        cursor.execute("ALTER TABLE ventas ADD COLUMN pedido_id INTEGER")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ventas_pedido_id ON ventas(pedido_id)")
+        print("OK Agregada columna pedido_id a ventas")
+    except sqlite3.OperationalError:
+        pass  # Ya existe
+    
+    # Agregar estado_pago a ventas
+    try:
+        cursor.execute("ALTER TABLE ventas ADD COLUMN estado_pago TEXT DEFAULT 'pagado'")
+        print("OK Agregada columna estado_pago a ventas")
+    except sqlite3.OperationalError:
+        pass  # Ya existe
+    
+    # Agregar venta_id a cuentas_por_cobrar para conectar con ventas
+    try:
+        cursor.execute("ALTER TABLE cuentas_por_cobrar ADD COLUMN venta_id INTEGER")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cuentas_venta_id ON cuentas_por_cobrar(venta_id)")
+        print("OK Agregada columna venta_id a cuentas_por_cobrar")
     except sqlite3.OperationalError:
         pass  # Ya existe
 

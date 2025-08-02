@@ -34,6 +34,7 @@ export default function SalesPage() {
   const [cart, setCart] = useState<CartItem[]>([])
   const [selectedProduct, setSelectedProduct] = useState("")
   const [selectedCustomer, setSelectedCustomer] = useState("")
+  const [estadoPago, setEstadoPago] = useState("pendiente")
   const [loading, setLoading] = useState(true)
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState("")
@@ -141,7 +142,8 @@ export default function SalesPage() {
         const ventaData = {
           cliente_id: clienteId,
           producto_id: item.id,
-          cantidad: item.cantidad
+          cantidad: item.cantidad,
+          estado_pago: estadoPago
         }
 
         const response = await api.registrarVenta(ventaData)
@@ -165,6 +167,7 @@ export default function SalesPage() {
       // Limpiar formulario
       setCart([])
       setSelectedCustomer("")
+      setEstadoPago("pendiente")
       
       alert(`¡Venta procesada exitosamente!\nTotal: $${total.toFixed(2)}`)
       
@@ -239,6 +242,19 @@ export default function SalesPage() {
                       {customer.nombre}
                     </SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label htmlFor="estado_pago">Estado de Pago</Label>
+              <Select value={estadoPago} onValueChange={setEstadoPago}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Estado de pago" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pagado">PAGADO (Cliente ya pagó)</SelectItem>
+                  <SelectItem value="pendiente">PENDIENTE (Por cobrar)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -371,6 +387,8 @@ export default function SalesPage() {
                   <TableHead>Producto</TableHead>
                   <TableHead>Cantidad</TableHead>
                   <TableHead>Total</TableHead>
+                  <TableHead>Estado Pago</TableHead>
+                  <TableHead>Pedido</TableHead>
                   <TableHead>Fecha</TableHead>
                   <TableHead>Acciones</TableHead>
                 </TableRow>
@@ -384,6 +402,20 @@ export default function SalesPage() {
                     <TableCell>{sale.cantidad}</TableCell>
                     <TableCell className="font-semibold text-green-600">
                       ${sale.total.toFixed(2)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        className={
+                          sale.estado_pago === 'pagado'
+                            ? "bg-green-100 text-green-800"
+                            : "bg-yellow-100 text-yellow-800"
+                        }
+                      >
+                        {sale.estado_pago === 'pagado' ? 'PAGADO' : 'PENDIENTE'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {sale.pedido_numero ? `#${sale.pedido_numero}` : '-'}
                     </TableCell>
                     <TableCell>{new Date(sale.fecha).toLocaleDateString()}</TableCell>
                     <TableCell>
