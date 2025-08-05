@@ -1,8 +1,11 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 import sqlite3
 from datetime import datetime, timedelta
 from models import init_db
+import io
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill
 
 # Conexión a la base de datos
 def get_db_connection():
@@ -974,6 +977,503 @@ def get_sequences_status():
     
     except Exception as e:
         conn.close()
+        return jsonify({'error': str(e)}), 500
+
+# -------------------- FUNCIONES HELPER PARA REPORTES --------------------
+def get_periodo_fechas(periodo):
+    """Calcula fechas de inicio y fin según el periodo solicitado"""
+    hoy = datetime.now()
+    
+    if periodo == 'semana':
+        inicio = hoy - timedelta(days=7)
+        fin = hoy
+        periodo_anterior_inicio = inicio - timedelta(days=7)
+        periodo_anterior_fin = inicio
+    elif periodo == 'mes':
+        inicio = hoy.replace(day=1)
+        fin = hoy
+        if inicio.month == 1:
+            periodo_anterior_inicio = inicio.replace(year=inicio.year-1, month=12, day=1)
+            periodo_anterior_fin = inicio.replace(year=inicio.year-1, month=12, day=31)
+        else:
+            periodo_anterior_inicio = inicio.replace(month=inicio.month-1, day=1)
+            if inicio.month-1 in [1,3,5,7,8,10,12]:
+                periodo_anterior_fin = inicio.replace(month=inicio.month-1, day=31)
+            elif inicio.month-1 in [4,6,9,11]:
+                periodo_anterior_fin = inicio.replace(month=inicio.month-1, day=30)
+            else:
+                periodo_anterior_fin = inicio.replace(month=inicio.month-1, day=28)
+    elif periodo == 'trimestre':
+        inicio = hoy - timedelta(days=90)
+        fin = hoy
+        periodo_anterior_inicio = inicio - timedelta(days=90)
+        periodo_anterior_fin = inicio
+    elif periodo == 'ano':
+        inicio = hoy.replace(month=1, day=1)
+        fin = hoy
+        periodo_anterior_inicio = inicio.replace(year=inicio.year-1)
+        periodo_anterior_fin = inicio.replace(year=inicio.year-1, month=12, day=31)
+    else:
+        inicio = hoy.replace(day=1)
+        fin = hoy
+        periodo_anterior_inicio = inicio.replace(month=inicio.month-1, day=1)
+        periodo_anterior_fin = inicio.replace(month=inicio.month-1, day=31)
+    
+    return inicio.strftime('%Y-%m-%d'), fin.strftime('%Y-%m-%d'), periodo_anterior_inicio.strftime('%Y-%m-%d'), periodo_anterior_fin.strftime('%Y-%m-%d')
+
+def calcular_crecimiento(actual, anterior):
+    """Calcula el porcentaje de crecimiento entre dos periodos"""
+    if anterior == 0:
+        return 100.0 if actual > 0 else 0.0
+    return round(((actual - anterior) / anterior) * 100, 1)
+
+# -------------------- ENDPOINTS DE REPORTES --------------------
+@app.route('/api/reportes/dashboard', methods=['GET'])
+def get_reporte_dashboard():
+    """Endpoint principal para métricas del dashboard"""
+    periodo = request.args.get('periodo', 'mes')
+    inicio, fin, anterior_inicio, anterior_fin = get_periodo_fechas(periodo)
+    
+    conn = get_db_connection()
+    try:
+        # Métricas del periodo actual
+        ventas_actual = conn.execute('''
+            SELECT 
+                COALESCE(SUM(total), 0) as ventas_totales,
+                COUNT(*) as total_pedidos
+            FROM ventas 
+            WHERE fecha >= ? AND fecha <= ?
+        ''', (inicio, fin)).fetchone()
+        
+        # Valor promedio
+        valor_promedio = ventas_actual['ventas_totales'] / ventas_actual['total_pedidos'] if ventas_actual['total_pedidos'] > 0 else 0
+        
+        # Nuevos clientes en el periodo
+        nuevos_clientes = conn.execute('''
+            SELECT COUNT(DISTINCT cliente_id) as nuevos
+            FROM ventas 
+            WHERE fecha >= ? AND fecha <= ?
+        ''', (inicio, fin)).fetchone()['nuevos']
+        
+        # Métricas del periodo anterior para comparar
+        ventas_anterior = conn.execute('''
+            SELECT 
+                COALESCE(SUM(total), 0) as ventas_totales,
+                COUNT(*) as total_pedidos
+            FROM ventas 
+            WHERE fecha >= ? AND fecha <= ?
+        ''', (anterior_inicio, anterior_fin)).fetchone()
+        
+        valor_promedio_anterior = ventas_anterior['ventas_totales'] / ventas_anterior['total_pedidos'] if ventas_anterior['total_pedidos'] > 0 else 0
+        
+        nuevos_clientes_anterior = conn.execute('''
+            SELECT COUNT(DISTINCT cliente_id) as nuevos
+            FROM ventas 
+            WHERE fecha >= ? AND fecha <= ?
+        ''', (anterior_inicio, anterior_fin)).fetchone()['nuevos']
+        
+        # Calcular crecimientos
+        crecimiento_ventas = calcular_crecimiento(ventas_actual['ventas_totales'], ventas_anterior['ventas_totales'])
+        crecimiento_pedidos = calcular_crecimiento(ventas_actual['total_pedidos'], ventas_anterior['total_pedidos'])
+        crecimiento_promedio = calcular_crecimiento(valor_promedio, valor_promedio_anterior)
+        crecimiento_clientes = calcular_crecimiento(nuevos_clientes, nuevos_clientes_anterior)
+        
+        conn.close()
+        
+        return jsonify({
+            'ventas_totales': round(ventas_actual['ventas_totales'], 2),
+            'total_pedidos': ventas_actual['total_pedidos'],
+            'valor_promedio': round(valor_promedio, 2),
+            'nuevos_clientes': nuevos_clientes,
+            'crecimiento_ventas': crecimiento_ventas,
+            'crecimiento_pedidos': crecimiento_pedidos,
+            'crecimiento_promedio': crecimiento_promedio,
+            'crecimiento_clientes': crecimiento_clientes
+        })
+        
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/reportes/ingresos-tipo', methods=['GET'])
+def get_ingresos_tipo():
+    """Endpoint para ingresos por tipo GFX/VFX"""
+    periodo = request.args.get('periodo', 'mes')
+    inicio, fin, _, _ = get_periodo_fechas(periodo)
+    
+    conn = get_db_connection()
+    try:
+        ingresos = conn.execute('''
+            SELECT 
+                p.tipo,
+                COALESCE(SUM(v.total), 0) as total_ingresos
+            FROM ventas v
+            JOIN productos p ON v.producto_id = p.id
+            WHERE v.fecha >= ? AND v.fecha <= ?
+            GROUP BY p.tipo
+        ''', (inicio, fin)).fetchall()
+        
+        total_general = sum(row['total_ingresos'] for row in ingresos)
+        
+        resultado = {}
+        for row in ingresos:
+            tipo = row['tipo'].upper()
+            total = row['total_ingresos']
+            porcentaje = round((total / total_general * 100), 1) if total_general > 0 else 0
+            resultado[tipo] = {
+                'total': round(total, 2),
+                'porcentaje': porcentaje
+            }
+        
+        # Asegurar que siempre tengamos GFX y VFX
+        if 'GFX' not in resultado:
+            resultado['GFX'] = {'total': 0, 'porcentaje': 0}
+        if 'VFX' not in resultado:
+            resultado['VFX'] = {'total': 0, 'porcentaje': 0}
+        
+        conn.close()
+        return jsonify(resultado)
+        
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/reportes/tendencia', methods=['GET'])
+def get_tendencia():
+    """Endpoint para tendencia temporal"""
+    periodo = request.args.get('periodo', 'mes')
+    
+    conn = get_db_connection()
+    try:
+        if periodo == 'semana':
+            # Últimos 7 días
+            query = '''
+                SELECT 
+                    DATE(v.fecha) as periodo,
+                    COALESCE(SUM(CASE WHEN p.tipo = 'VFX' THEN v.total ELSE 0 END), 0) as vfx,
+                    COALESCE(SUM(CASE WHEN p.tipo = 'GFX' THEN v.total ELSE 0 END), 0) as gfx,
+                    COALESCE(SUM(v.total), 0) as total
+                FROM ventas v
+                JOIN productos p ON v.producto_id = p.id
+                WHERE v.fecha >= date('now', '-7 days')
+                GROUP BY DATE(v.fecha)
+                ORDER BY DATE(v.fecha) DESC
+                LIMIT 7
+            '''
+        elif periodo == 'trimestre':
+            # Últimos 3 meses
+            query = '''
+                SELECT 
+                    strftime('%Y-%m', v.fecha) as periodo,
+                    COALESCE(SUM(CASE WHEN p.tipo = 'VFX' THEN v.total ELSE 0 END), 0) as vfx,
+                    COALESCE(SUM(CASE WHEN p.tipo = 'GFX' THEN v.total ELSE 0 END), 0) as gfx,
+                    COALESCE(SUM(v.total), 0) as total
+                FROM ventas v
+                JOIN productos p ON v.producto_id = p.id
+                WHERE v.fecha >= date('now', '-3 months')
+                GROUP BY strftime('%Y-%m', v.fecha)
+                ORDER BY strftime('%Y-%m', v.fecha) DESC
+                LIMIT 3
+            '''
+        elif periodo == 'ano':
+            # Meses del año actual
+            query = '''
+                SELECT 
+                    strftime('%Y-%m', v.fecha) as periodo,
+                    COALESCE(SUM(CASE WHEN p.tipo = 'VFX' THEN v.total ELSE 0 END), 0) as vfx,
+                    COALESCE(SUM(CASE WHEN p.tipo = 'GFX' THEN v.total ELSE 0 END), 0) as gfx,
+                    COALESCE(SUM(v.total), 0) as total
+                FROM ventas v
+                JOIN productos p ON v.producto_id = p.id
+                WHERE strftime('%Y', v.fecha) = strftime('%Y', 'now')
+                GROUP BY strftime('%Y-%m', v.fecha)
+                ORDER BY strftime('%Y-%m', v.fecha) DESC
+                LIMIT 12
+            '''
+        else:  # mes por defecto
+            # Últimas 4 semanas
+            query = '''
+                SELECT 
+                    'Semana ' || ((julianday('now') - julianday(v.fecha)) / 7 + 1) as periodo,
+                    COALESCE(SUM(CASE WHEN p.tipo = 'VFX' THEN v.total ELSE 0 END), 0) as vfx,
+                    COALESCE(SUM(CASE WHEN p.tipo = 'GFX' THEN v.total ELSE 0 END), 0) as gfx,
+                    COALESCE(SUM(v.total), 0) as total
+                FROM ventas v
+                JOIN productos p ON v.producto_id = p.id
+                WHERE v.fecha >= date('now', '-1 month')
+                GROUP BY ((julianday('now') - julianday(v.fecha)) / 7)
+                ORDER BY ((julianday('now') - julianday(v.fecha)) / 7)
+                LIMIT 4
+            '''
+        
+        resultados = conn.execute(query).fetchall()
+        
+        tendencia = []
+        for row in resultados:
+            tendencia.append({
+                'periodo': row['periodo'],
+                'vfx': round(row['vfx'], 2),
+                'gfx': round(row['gfx'], 2),
+                'total': round(row['total'], 2)
+            })
+        
+        conn.close()
+        return jsonify(tendencia)
+        
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/reportes/productos-top', methods=['GET'])
+def get_productos_top():
+    """Endpoint para productos más vendidos"""
+    periodo = request.args.get('periodo', 'mes')
+    inicio, fin, _, _ = get_periodo_fechas(periodo)
+    
+    conn = get_db_connection()
+    try:
+        productos = conn.execute('''
+            SELECT 
+                p.nombre,
+                p.tipo,
+                COUNT(v.id) as pedidos,
+                COALESCE(SUM(v.total), 0) as ingresos
+            FROM ventas v
+            JOIN productos p ON v.producto_id = p.id
+            WHERE v.fecha >= ? AND v.fecha <= ?
+            GROUP BY p.id, p.nombre, p.tipo
+            ORDER BY ingresos DESC
+            LIMIT 10
+        ''', (inicio, fin)).fetchall()
+        
+        resultado = []
+        for row in productos:
+            promedio = row['ingresos'] / row['pedidos'] if row['pedidos'] > 0 else 0
+            resultado.append({
+                'nombre': row['nombre'],
+                'tipo': row['tipo'].upper(),
+                'pedidos': row['pedidos'],
+                'ingresos': round(row['ingresos'], 2),
+                'promedio': round(promedio, 2)
+            })
+        
+        conn.close()
+        return jsonify(resultado)
+        
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/reportes/clientes-top', methods=['GET'])
+def get_clientes_top():
+    """Endpoint para mejores clientes"""
+    periodo = request.args.get('periodo', 'mes')
+    inicio, fin, _, _ = get_periodo_fechas(periodo)
+    
+    conn = get_db_connection()
+    try:
+        clientes = conn.execute('''
+            SELECT 
+                c.nombre,
+                COUNT(v.id) as pedidos,
+                COALESCE(SUM(v.total), 0) as ingresos,
+                MAX(v.fecha) as ultimo_pedido
+            FROM ventas v
+            JOIN clientes c ON v.cliente_id = c.id
+            WHERE v.fecha >= ? AND v.fecha <= ?
+            GROUP BY c.id, c.nombre
+            ORDER BY ingresos DESC
+            LIMIT 10
+        ''', (inicio, fin)).fetchall()
+        
+        resultado = []
+        for row in clientes:
+            promedio = row['ingresos'] / row['pedidos'] if row['pedidos'] > 0 else 0
+            resultado.append({
+                'nombre': row['nombre'],
+                'pedidos': row['pedidos'],
+                'ingresos': round(row['ingresos'], 2),
+                'promedio': round(promedio, 2),
+                'ultimo_pedido': row['ultimo_pedido']
+            })
+        
+        conn.close()
+        return jsonify(resultado)
+        
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/reportes/exportar', methods=['GET'])
+def exportar_reporte():
+    """Endpoint para exportar reportes a Excel"""
+    periodo = request.args.get('periodo', 'mes')
+    formato = request.args.get('formato', 'excel')
+    
+    if formato != 'excel':
+        return jsonify({'error': 'Solo se soporta formato Excel'}), 400
+    
+    try:
+        # Crear workbook
+        wb = Workbook()
+        
+        # Obtener datos para todas las hojas
+        inicio, fin, _, _ = get_periodo_fechas(periodo)
+        conn = get_db_connection()
+        
+        # Hoja 1: Resumen general
+        ws1 = wb.active
+        ws1.title = "Resumen General"
+        
+        # Headers con estilo
+        header_font = Font(bold=True)
+        header_fill = PatternFill(start_color="CCCCCC", end_color="CCCCCC", fill_type="solid")
+        
+        ws1['A1'] = 'Métrica'
+        ws1['B1'] = 'Valor'
+        ws1['A1'].font = header_font
+        ws1['B1'].font = header_font
+        ws1['A1'].fill = header_fill
+        ws1['B1'].fill = header_fill
+        
+        # Obtener datos del dashboard
+        dashboard_data = conn.execute('''
+            SELECT 
+                COALESCE(SUM(total), 0) as ventas_totales,
+                COUNT(*) as total_pedidos
+            FROM ventas 
+            WHERE fecha >= ? AND fecha <= ?
+        ''', (inicio, fin)).fetchone()
+        
+        valor_promedio = dashboard_data['ventas_totales'] / dashboard_data['total_pedidos'] if dashboard_data['total_pedidos'] > 0 else 0
+        nuevos_clientes = conn.execute('''
+            SELECT COUNT(DISTINCT cliente_id) as nuevos
+            FROM ventas 
+            WHERE fecha >= ? AND fecha <= ?
+        ''', (inicio, fin)).fetchone()['nuevos']
+        
+        ws1['A2'] = 'Ventas Totales'
+        ws1['B2'] = f"${dashboard_data['ventas_totales']:.2f}"
+        ws1['A3'] = 'Total Pedidos'
+        ws1['B3'] = dashboard_data['total_pedidos']
+        ws1['A4'] = 'Valor Promedio'
+        ws1['B4'] = f"${valor_promedio:.2f}"
+        ws1['A5'] = 'Nuevos Clientes'
+        ws1['B5'] = nuevos_clientes
+        
+        # Hoja 2: Ingresos por tipo
+        ws2 = wb.create_sheet("Ingresos por Tipo")
+        ws2['A1'] = 'Tipo'
+        ws2['B1'] = 'Ingresos'
+        ws2['C1'] = 'Porcentaje'
+        ws2['A1'].font = header_font
+        ws2['B1'].font = header_font
+        ws2['C1'].font = header_font
+        
+        ingresos_tipo = conn.execute('''
+            SELECT 
+                p.tipo,
+                COALESCE(SUM(v.total), 0) as total_ingresos
+            FROM ventas v
+            JOIN productos p ON v.producto_id = p.id
+            WHERE v.fecha >= ? AND v.fecha <= ?
+            GROUP BY p.tipo
+        ''', (inicio, fin)).fetchall()
+        
+        total_general = sum(row['total_ingresos'] for row in ingresos_tipo)
+        row_num = 2
+        for row in ingresos_tipo:
+            porcentaje = (row['total_ingresos'] / total_general * 100) if total_general > 0 else 0
+            ws2[f'A{row_num}'] = row['tipo'].upper()
+            ws2[f'B{row_num}'] = f"${row['total_ingresos']:.2f}"
+            ws2[f'C{row_num}'] = f"{porcentaje:.1f}%"
+            row_num += 1
+        
+        # Hoja 3: Productos más vendidos
+        ws3 = wb.create_sheet("Productos Top")
+        ws3['A1'] = 'Producto'
+        ws3['B1'] = 'Tipo'
+        ws3['C1'] = 'Pedidos'
+        ws3['D1'] = 'Ingresos'
+        ws3['E1'] = 'Promedio'
+        for col in ['A1', 'B1', 'C1', 'D1', 'E1']:
+            ws3[col].font = header_font
+        
+        productos_top = conn.execute('''
+            SELECT 
+                p.nombre,
+                p.tipo,
+                COUNT(v.id) as pedidos,
+                COALESCE(SUM(v.total), 0) as ingresos
+            FROM ventas v
+            JOIN productos p ON v.producto_id = p.id
+            WHERE v.fecha >= ? AND v.fecha <= ?
+            GROUP BY p.id, p.nombre, p.tipo
+            ORDER BY ingresos DESC
+            LIMIT 10
+        ''', (inicio, fin)).fetchall()
+        
+        row_num = 2
+        for row in productos_top:
+            promedio = row['ingresos'] / row['pedidos'] if row['pedidos'] > 0 else 0
+            ws3[f'A{row_num}'] = row['nombre']
+            ws3[f'B{row_num}'] = row['tipo'].upper()
+            ws3[f'C{row_num}'] = row['pedidos']
+            ws3[f'D{row_num}'] = f"${row['ingresos']:.2f}"
+            ws3[f'E{row_num}'] = f"${promedio:.2f}"
+            row_num += 1
+        
+        # Hoja 4: Mejores clientes
+        ws4 = wb.create_sheet("Mejores Clientes")
+        ws4['A1'] = 'Cliente'
+        ws4['B1'] = 'Pedidos'
+        ws4['C1'] = 'Ingresos'
+        ws4['D1'] = 'Promedio'
+        ws4['E1'] = 'Último Pedido'
+        for col in ['A1', 'B1', 'C1', 'D1', 'E1']:
+            ws4[col].font = header_font
+        
+        clientes_top = conn.execute('''
+            SELECT 
+                c.nombre,
+                COUNT(v.id) as pedidos,
+                COALESCE(SUM(v.total), 0) as ingresos,
+                MAX(v.fecha) as ultimo_pedido
+            FROM ventas v
+            JOIN clientes c ON v.cliente_id = c.id
+            WHERE v.fecha >= ? AND v.fecha <= ?
+            GROUP BY c.id, c.nombre
+            ORDER BY ingresos DESC
+            LIMIT 10
+        ''', (inicio, fin)).fetchall()
+        
+        row_num = 2
+        for row in clientes_top:
+            promedio = row['ingresos'] / row['pedidos'] if row['pedidos'] > 0 else 0
+            ws4[f'A{row_num}'] = row['nombre']
+            ws4[f'B{row_num}'] = row['pedidos']
+            ws4[f'C{row_num}'] = f"${row['ingresos']:.2f}"
+            ws4[f'D{row_num}'] = f"${promedio:.2f}"
+            ws4[f'E{row_num}'] = row['ultimo_pedido']
+            row_num += 1
+        
+        conn.close()
+        
+        # Guardar en memoria
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        filename = f"reporte_plusgraphics_{periodo}.xlsx"
+        
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=filename
+        )
+        
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':

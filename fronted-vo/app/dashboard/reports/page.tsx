@@ -5,47 +5,156 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { TrendingUp, DollarSign, Users, FileText, Download, Calendar } from "lucide-react"
+import { TrendingUp, DollarSign, Users, FileText, Download, Calendar, Loader2 } from "lucide-react"
+import { useState, useEffect } from "react"
 
-// Datos realistas basados en los productos de Plus Graphics
-const salesData = {
-  totalSales: 15420.5,
-  totalOrders: 28,
-  avgOrderValue: 550.73,
-  newClients: 8,
-  gfxRevenue: 3240.8,
-  vfxRevenue: 12179.7,
+// Tipos para TypeScript
+interface DashboardData {
+  ventas_totales: number;
+  total_pedidos: number;
+  valor_promedio: number;
+  nuevos_clientes: number;
+  crecimiento_ventas: number;
+  crecimiento_pedidos: number;
+  crecimiento_promedio: number;
+  crecimiento_clientes: number;
 }
 
-const topProducts = [
-  { name: "SCENE ANIMATION", sales: 8316.8, orders: 4, category: "vfx" },
-  { name: "SCENE", sales: 2630.12, orders: 2, category: "vfx" },
-  { name: "ANIMATED 2.0 FRAME", sales: 1611.2, orders: 2, category: "vfx" },
-  { name: "TRANSITION", sales: 725.67, orders: 1, category: "vfx" },
-  { name: "LOGO ANIMATION", sales: 431.82, orders: 2, category: "vfx" },
-  { name: "POST (1 SLIDE)", sales: 279.72, orders: 4, category: "gfx" },
-]
+interface IngresosData {
+  [key: string]: {
+    total: number;
+    porcentaje: number;
+  };
+}
 
-const clientsData = [
-  { name: "MECA Corporation", orders: 8, revenue: 4200.5, lastOrder: "2024-01-15" },
-  { name: "NIKE Store", orders: 6, revenue: 3800.2, lastOrder: "2024-01-14" },
-  { name: "Startup Tech", orders: 4, revenue: 2650.0, lastOrder: "2024-01-12" },
-  { name: "Local Business", orders: 3, revenue: 1890.3, lastOrder: "2024-01-10" },
-  { name: "Creative Agency", orders: 7, revenue: 2879.5, lastOrder: "2024-01-08" },
-]
+interface TendenciaItem {
+  periodo: string;
+  vfx: number;
+  gfx: number;
+  total: number;
+}
 
-const monthlyData = [
-  { month: "Enero", gfx: 3240.8, vfx: 12179.7, total: 15420.5 },
-  { month: "Diciembre", gfx: 2890.4, vfx: 10250.3, total: 13140.7 },
-  { month: "Noviembre", gfx: 2650.2, vfx: 9800.5, total: 12450.7 },
-]
+interface ProductoTop {
+  nombre: string;
+  tipo: string;
+  pedidos: number;
+  ingresos: number;
+  promedio: number;
+}
+
+interface ClienteTop {
+  nombre: string;
+  pedidos: number;
+  ingresos: number;
+  promedio: number;
+  ultimo_pedido: string;
+}
 
 export default function ReportsPage() {
+  // Estados
+  const [periodo, setPeriodo] = useState('mes')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null)
+  const [ingresosData, setIngresosData] = useState<IngresosData | null>(null)
+  const [tendenciaData, setTendenciaData] = useState<TendenciaItem[]>([])
+  const [productosTop, setProductosTop] = useState<ProductoTop[]>([])
+  const [clientesTop, setClientesTop] = useState<ClienteTop[]>([])
+
+  // Función para cargar datos
+  const cargarDatos = async (periodoSeleccionado: string) => {
+    setLoading(true)
+    setError(null)
+    
+    try {
+      const endpoints = [
+        `http://localhost:5000/api/reportes/dashboard?periodo=${periodoSeleccionado}`,
+        `http://localhost:5000/api/reportes/ingresos-tipo?periodo=${periodoSeleccionado}`,
+        `http://localhost:5000/api/reportes/tendencia?periodo=${periodoSeleccionado}`,
+        `http://localhost:5000/api/reportes/productos-top?periodo=${periodoSeleccionado}`,
+        `http://localhost:5000/api/reportes/clientes-top?periodo=${periodoSeleccionado}`
+      ]
+      
+      const responses = await Promise.all(
+        endpoints.map(url => fetch(url).then(res => res.json()))
+      )
+      
+      setDashboardData(responses[0])
+      setIngresosData(responses[1])
+      setTendenciaData(responses[2] || [])
+      setProductosTop(responses[3] || [])
+      setClientesTop(responses[4] || [])
+      
+    } catch (err) {
+      setError('Error al cargar los datos de reportes')
+      console.error('Error:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+  
+  // Función para exportar
+  const exportarReporte = async () => {
+    try {
+      const response = await fetch(`http://localhost:5000/api/reportes/exportar?periodo=${periodo}&formato=excel`)
+      
+      if (response.ok) {
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `reporte_plusgraphics_${periodo}.xlsx`
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
+      } else {
+        setError('Error al exportar el reporte')
+      }
+    } catch (err) {
+      setError('Error al exportar el reporte')
+      console.error('Error:', err)
+    }
+  }
+  
+  // Cargar datos cuando cambia el periodo
+  useEffect(() => {
+    cargarDatos(periodo)
+  }, [periodo])
+  
+  // Helper para badges
   const getCategoryBadge = (category: string) => {
-    return category === "gfx" ? (
+    return category === "GFX" ? (
       <Badge className="bg-yellow-200 text-yellow-800">GFX</Badge>
     ) : (
       <Badge className="bg-blue-200 text-blue-800">VFX</Badge>
+    )
+  }
+  
+  // Helper para mostrar crecimientos
+  const getCrecimientoColor = (crecimiento: number) => {
+    if (crecimiento > 0) return "text-green-600"
+    if (crecimiento < 0) return "text-red-600"
+    return "text-gray-600"
+  }
+  
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin" />
+        <span className="ml-2">Cargando reportes...</span>
+      </div>
+    )
+  }
+  
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <p className="text-red-600 mb-4">{error}</p>
+          <Button onClick={() => cargarDatos(periodo)}>Reintentar</Button>
+        </div>
+      </div>
     )
   }
 
@@ -54,18 +163,18 @@ export default function ReportsPage() {
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">Reportes y Análisis</h1>
         <div className="flex space-x-2">
-          <Select defaultValue="month">
+          <Select value={periodo} onValueChange={setPeriodo}>
             <SelectTrigger className="w-40">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="week">Esta Semana</SelectItem>
-              <SelectItem value="month">Este Mes</SelectItem>
-              <SelectItem value="quarter">Este Trimestre</SelectItem>
-              <SelectItem value="year">Este Año</SelectItem>
+              <SelectItem value="semana">Esta Semana</SelectItem>
+              <SelectItem value="mes">Este Mes</SelectItem>
+              <SelectItem value="trimestre">Este Trimestre</SelectItem>
+              <SelectItem value="ano">Este Año</SelectItem>
             </SelectContent>
           </Select>
-          <Button>
+          <Button onClick={exportarReporte} disabled={loading}>
             <Download className="mr-2 h-4 w-4" />
             Exportar
           </Button>
@@ -80,8 +189,10 @@ export default function ReportsPage() {
             <DollarSign className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">${salesData.totalSales.toLocaleString()}</div>
-            <p className="text-xs text-green-600 mt-1">+18.2% vs mes anterior</p>
+            <div className="text-2xl font-bold">${dashboardData?.ventas_totales?.toLocaleString() || '0'}</div>
+            <p className={`text-xs mt-1 ${getCrecimientoColor(dashboardData?.crecimiento_ventas || 0)}`}>
+              {dashboardData?.crecimiento_ventas > 0 ? '+' : ''}{dashboardData?.crecimiento_ventas || 0}% vs periodo anterior
+            </p>
           </CardContent>
         </Card>
 
@@ -91,8 +202,10 @@ export default function ReportsPage() {
             <FileText className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{salesData.totalOrders}</div>
-            <p className="text-xs text-blue-600 mt-1">+12.5% vs mes anterior</p>
+            <div className="text-2xl font-bold">{dashboardData?.total_pedidos || 0}</div>
+            <p className={`text-xs mt-1 ${getCrecimientoColor(dashboardData?.crecimiento_pedidos || 0)}`}>
+              {dashboardData?.crecimiento_pedidos > 0 ? '+' : ''}{dashboardData?.crecimiento_pedidos || 0}% vs periodo anterior
+            </p>
           </CardContent>
         </Card>
 
@@ -102,8 +215,10 @@ export default function ReportsPage() {
             <TrendingUp className="h-4 w-4 text-purple-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">${salesData.avgOrderValue.toFixed(2)}</div>
-            <p className="text-xs text-purple-600 mt-1">+5.8% vs mes anterior</p>
+            <div className="text-2xl font-bold">${dashboardData?.valor_promedio?.toFixed(2) || '0.00'}</div>
+            <p className={`text-xs mt-1 ${getCrecimientoColor(dashboardData?.crecimiento_promedio || 0)}`}>
+              {dashboardData?.crecimiento_promedio > 0 ? '+' : ''}{dashboardData?.crecimiento_promedio || 0}% vs periodo anterior
+            </p>
           </CardContent>
         </Card>
 
@@ -113,8 +228,10 @@ export default function ReportsPage() {
             <Users className="h-4 w-4 text-orange-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{salesData.newClients}</div>
-            <p className="text-xs text-orange-600 mt-1">+33.3% vs mes anterior</p>
+            <div className="text-2xl font-bold">{dashboardData?.nuevos_clientes || 0}</div>
+            <p className={`text-xs mt-1 ${getCrecimientoColor(dashboardData?.crecimiento_clientes || 0)}`}>
+              {dashboardData?.crecimiento_clientes > 0 ? '+' : ''}{dashboardData?.crecimiento_clientes || 0}% vs periodo anterior
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -133,8 +250,8 @@ export default function ReportsPage() {
                   <span className="font-medium">Efectos Visuales</span>
                 </div>
                 <div className="text-right">
-                  <div className="text-2xl font-bold text-blue-600">${salesData.vfxRevenue.toLocaleString()}</div>
-                  <div className="text-sm text-gray-600">78.9% del total</div>
+                  <div className="text-2xl font-bold text-blue-600">${ingresosData?.VFX?.total?.toLocaleString() || '0'}</div>
+                  <div className="text-sm text-gray-600">{ingresosData?.VFX?.porcentaje || 0}% del total</div>
                 </div>
               </div>
               <div className="flex items-center justify-between p-4 bg-yellow-50 rounded-lg">
@@ -143,8 +260,8 @@ export default function ReportsPage() {
                   <span className="font-medium">Diseño Gráfico</span>
                 </div>
                 <div className="text-right">
-                  <div className="text-2xl font-bold text-yellow-600">${salesData.gfxRevenue.toLocaleString()}</div>
-                  <div className="text-sm text-gray-600">21.1% del total</div>
+                  <div className="text-2xl font-bold text-yellow-600">${ingresosData?.GFX?.total?.toLocaleString() || '0'}</div>
+                  <div className="text-sm text-gray-600">{ingresosData?.GFX?.porcentaje || 0}% del total</div>
                 </div>
               </div>
             </div>
@@ -157,20 +274,24 @@ export default function ReportsPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {monthlyData.map((month, index) => (
-                <div key={month.month} className="flex items-center justify-between p-3 border rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4 text-gray-500" />
-                    <span className="font-medium">{month.month}</span>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-bold">${month.total.toLocaleString()}</div>
-                    <div className="text-xs text-gray-500">
-                      VFX: ${month.vfx.toLocaleString()} | GFX: ${month.gfx.toLocaleString()}
+              {tendenciaData.length > 0 ? (
+                tendenciaData.map((item, index) => (
+                  <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-4 w-4 text-gray-500" />
+                      <span className="font-medium">{item.periodo}</span>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-bold">${item.total.toLocaleString()}</div>
+                      <div className="text-xs text-gray-500">
+                        VFX: ${item.vfx.toLocaleString()} | GFX: ${item.gfx.toLocaleString()}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="text-gray-500 text-center py-4">No hay datos de tendencia disponibles</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -193,15 +314,23 @@ export default function ReportsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {topProducts.map((product, index) => (
-                <TableRow key={product.name}>
-                  <TableCell className="font-medium">{product.name}</TableCell>
-                  <TableCell>{getCategoryBadge(product.category)}</TableCell>
-                  <TableCell>{product.orders}</TableCell>
-                  <TableCell className="font-semibold text-green-600">${product.sales.toLocaleString()}</TableCell>
-                  <TableCell>${(product.sales / product.orders).toFixed(2)}</TableCell>
+              {productosTop.length > 0 ? (
+                productosTop.map((product, index) => (
+                  <TableRow key={index}>
+                    <TableCell className="font-medium">{product.nombre}</TableCell>
+                    <TableCell>{getCategoryBadge(product.tipo)}</TableCell>
+                    <TableCell>{product.pedidos}</TableCell>
+                    <TableCell className="font-semibold text-green-600">${product.ingresos.toLocaleString()}</TableCell>
+                    <TableCell>${product.promedio.toFixed(2)}</TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center py-4 text-gray-500">
+                    No hay datos de productos disponibles
+                  </TableCell>
                 </TableRow>
-              ))}
+              )}
             </TableBody>
           </Table>
         </CardContent>
@@ -224,15 +353,23 @@ export default function ReportsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {clientsData.map((client) => (
-                <TableRow key={client.name}>
-                  <TableCell className="font-medium">{client.name}</TableCell>
-                  <TableCell>{client.orders}</TableCell>
-                  <TableCell className="font-semibold text-green-600">${client.revenue.toLocaleString()}</TableCell>
-                  <TableCell>${(client.revenue / client.orders).toFixed(2)}</TableCell>
-                  <TableCell>{client.lastOrder}</TableCell>
+              {clientesTop.length > 0 ? (
+                clientesTop.map((client, index) => (
+                  <TableRow key={index}>
+                    <TableCell className="font-medium">{client.nombre}</TableCell>
+                    <TableCell>{client.pedidos}</TableCell>
+                    <TableCell className="font-semibold text-green-600">${client.ingresos.toLocaleString()}</TableCell>
+                    <TableCell>${client.promedio.toFixed(2)}</TableCell>
+                    <TableCell>{client.ultimo_pedido}</TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center py-4 text-gray-500">
+                    No hay datos de clientes disponibles
+                  </TableCell>
                 </TableRow>
-              ))}
+              )}
             </TableBody>
           </Table>
         </CardContent>
