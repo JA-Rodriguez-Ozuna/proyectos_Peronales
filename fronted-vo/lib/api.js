@@ -76,6 +76,10 @@ export const api = {
     return makeRequest('/clientes')
   },
 
+  getCliente: async (id) => {
+    return makeRequest(`/clientes/${id}`)
+  },
+
   crearCliente: async (cliente) => {
     return makeRequest('/clientes', {
       method: 'POST',

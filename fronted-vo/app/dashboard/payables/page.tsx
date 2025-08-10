@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { CreditCard, Clock, AlertTriangle, Plus, RefreshCw, Eye } from "lucide-react"
+import { CreditCard, Clock, AlertTriangle, Plus, RefreshCw, Eye, Trash2 } from "lucide-react"
 import { useState, useEffect } from "react"
 
 interface CuentaPorPagar {
@@ -119,6 +119,29 @@ export default function PayablesPage() {
     }
   }
 
+  const handleClearAll = async () => {
+    if (!confirm('¿Estás seguro? Esta acción eliminará TODAS las cuentas por pagar y no se puede deshacer.')) {
+      return
+    }
+    
+    try {
+      const response = await fetch('http://localhost:5000/api/cuentas-por-pagar/all', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' }
+      })
+      
+      if (response.ok) {
+        alert('Todas las cuentas por pagar han sido eliminadas')
+        loadData() // Recargar datos
+      } else {
+        alert('Error al eliminar las cuentas')
+      }
+    } catch (error) {
+      console.error('Error clearing all accounts:', error)
+      alert('Error de conexión')
+    }
+  }
+
   const handleVerDetalles = (account: CuentaPorPagar) => {
     setSelectedAccount(account)
   }
@@ -133,7 +156,17 @@ export default function PayablesPage() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">Cuentas por Pagar</h1>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <div className="flex gap-2">
+          <Button 
+            variant="destructive" 
+            size="sm"
+            onClick={handleClearAll}
+            className="text-white"
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Vaciar Todas las Cuentas
+          </Button>
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
             <Button>
               <Plus className="h-4 w-4 mr-2" />
@@ -195,6 +228,7 @@ export default function PayablesPage() {
             </form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">

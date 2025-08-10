@@ -843,6 +843,150 @@ def marcar_cuenta_por_pagar_como_pagada(id):
         conn.close()
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/cuentas-por-cobrar/all', methods=['DELETE'])
+def delete_all_receivables():
+    """Eliminar todas las cuentas por cobrar"""
+    conn = get_db_connection()
+    try:
+        conn.execute('DELETE FROM cuentas_por_cobrar')
+        conn.commit()
+        conn.close()
+        return jsonify({'mensaje': 'Todas las cuentas por cobrar han sido eliminadas'})
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cuentas-por-pagar/all', methods=['DELETE'])
+def delete_all_payables():
+    """Eliminar todas las cuentas por pagar"""
+    conn = get_db_connection()
+    try:
+        conn.execute('DELETE FROM cuentas_por_pagar')
+        conn.commit()
+        conn.close()
+        return jsonify({'mensaje': 'Todas las cuentas por pagar han sido eliminadas'})
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/restore-productos-originales', methods=['POST'])
+def restore_productos_originales():
+    """
+    URGENTE - Restaurar productos reales eliminados accidentalmente
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # PRIMERO: Borrar productos actuales (ejemplo/demo)
+        cursor.execute('DELETE FROM productos')
+        
+        # SEGUNDO: Resetear secuencia productos
+        cursor.execute('DELETE FROM sqlite_sequence WHERE name="productos"')
+        
+        # TERCERO: Insertar productos reales originales
+        productos_originales = [
+            ("SCENE ANIMATION", "vfx", 2079.20, "Animación de escena completa"),
+            ("SCENE", "vfx", 1315.06, "Escena de video profesional"),
+            ("ANIMATED 2.0 FRAME", "vfx", 805.60, "Frame animado versión 2.0"),
+            ("TRANSITION", "vfx", 725.67, "Transición de video profesional"),
+            ("INTRO", "vfx", 275.84, "Introducción animada"),
+            ("LOGO ANIMATION", "vfx", 215.91, "Animación de logo"),
+            ("POST (1 SLIDE)", "gfx", 69.93, "Post de 1 slide para redes sociales"),
+            ("ANIMATED OUTRO", "vfx", 65.98, "Outro animado"),
+            ("POST RAIMATION", "gfx", 31.38, "Post con animación básica"),
+            ("2.0 FRAME", "gfx", 27.98, "Frame versión 2.0"),
+            ("LOWERTHIRD", "gfx", 26.87, "Lower third gráfico")
+        ]
+        
+        cursor.executemany('''
+            INSERT INTO productos (nombre, tipo, precio, descripcion) 
+            VALUES (?, ?, ?, ?)
+        ''', productos_originales)
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Productos originales restaurados exitosamente',
+            'productos_restaurados': len(productos_originales),
+            'total_productos': 11,
+            'productos': [p[0] for p in productos_originales]
+        })
+        
+    except Exception as e:
+        if conn:
+            conn.rollback()
+            conn.close()
+        return jsonify({'error': f'Error al restaurar productos: {str(e)}'}), 500
+
+@app.route('/api/reset-database', methods=['POST'])
+def reset_database_for_production():
+    """
+    SOLO PARA PRODUCCION - Resetea completamente la base de datos
+    Borra todos los datos y reinicia secuencias en 1
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # BORRAR TODOS LOS DATOS
+        cursor.execute('DELETE FROM ventas')
+        cursor.execute('DELETE FROM pedido_productos')
+        cursor.execute('DELETE FROM pedidos') 
+        cursor.execute('DELETE FROM clientes')
+        cursor.execute('DELETE FROM productos')
+        cursor.execute('DELETE FROM cuentas_por_cobrar')
+        cursor.execute('DELETE FROM cuentas_por_pagar')
+        
+        # RESETEAR SECUENCIAS AUTOINCREMENT
+        cursor.execute('DELETE FROM sqlite_sequence WHERE name="ventas"')
+        cursor.execute('DELETE FROM sqlite_sequence WHERE name="pedidos"')
+        cursor.execute('DELETE FROM sqlite_sequence WHERE name="pedido_productos"')
+        cursor.execute('DELETE FROM sqlite_sequence WHERE name="clientes"')
+        cursor.execute('DELETE FROM sqlite_sequence WHERE name="productos"')
+        cursor.execute('DELETE FROM sqlite_sequence WHERE name="cuentas_por_cobrar"')
+        cursor.execute('DELETE FROM sqlite_sequence WHERE name="cuentas_por_pagar"')
+        
+        # INSERTAR DATOS EJEMPLO PARA DEMO
+        # Productos ejemplo
+        cursor.execute('''
+            INSERT INTO productos (nombre, tipo, precio, descripcion) VALUES
+            ('SCENE ANIMATION', 'vfx', 2079.20, 'Animación de escena completa con efectos profesionales'),
+            ('LOGO DESIGN', 'gfx', 500.00, 'Diseño de logo corporativo profesional'),
+            ('VIDEO EDIT PRO', 'vfx', 1200.00, 'Edición profesional de video con efectos'),
+            ('BRANDING PACKAGE', 'gfx', 800.00, 'Paquete completo de identidad corporativa'),
+            ('3D MODELING', 'vfx', 1500.00, 'Modelado 3D para animación y renders')
+        ''')
+        
+        # Clientes ejemplo  
+        cursor.execute('''
+            INSERT INTO clientes (nombre, email, telefono, direccion, notas) VALUES
+            ('Empresa Innovadora S.A.', 'contacto@innovadora.com', '+1 (555) 123-4567', 'Av. Tecnología 123, Centro Empresarial', 'Cliente corporativo - Proyectos grandes'),
+            ('Estudio Creativo Luna', 'info@estudioluna.com', '+1 (555) 987-6543', 'Calle Arte 456, Distrito Creativo', 'Estudio de diseño - Colaboraciones frecuentes'),
+            ('Digital Marketing Pro', 'hello@digitalmarketing.com', '+1 (555) 555-0199', 'Torre Comercial 789, Piso 15', 'Agencia de marketing - Campañas mensuales')
+        ''')
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'mensaje': 'Base de datos reseteada para producción exitosamente',
+            'productos_creados': 5,
+            'clientes_creados': 3,
+            'secuencias_reiniciadas': ['clientes', 'productos', 'pedidos', 'ventas', 'cuentas_por_cobrar', 'cuentas_por_pagar']
+        })
+        
+    except Exception as e:
+        if conn:
+            conn.rollback()
+            conn.close()
+        return jsonify({'error': f'Error al resetear base de datos: {str(e)}'}), 500
+
 # -------------------- RUTA DE INICIALIZACIÓN --------------------
 @app.route('/api/init-db', methods=['POST'])
 def initialize_database():

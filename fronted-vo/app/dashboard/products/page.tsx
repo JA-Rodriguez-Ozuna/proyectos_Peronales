@@ -21,6 +21,7 @@ interface Product {
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -67,6 +68,16 @@ export default function ProductsPage() {
     return category === "gfx" ? "bg-yellow-50" : "bg-blue-50"
   }
 
+  const handleEditProduct = (product: Product) => {
+    setEditingProduct(product)
+    setIsDialogOpen(true)
+  }
+
+  const handleCloseDialog = () => {
+    setIsDialogOpen(false)
+    setEditingProduct(null)
+  }
+
   const handleDeleteProduct = async (id: number) => {
     if (!confirm("¿Estás seguro de que quieres eliminar este producto?")) return
 
@@ -111,7 +122,10 @@ export default function ProductsPage() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">Gestión de Productos y Servicios</h1>
-        <Button onClick={() => setIsDialogOpen(true)}>
+        <Button onClick={() => {
+          setEditingProduct(null)
+          setIsDialogOpen(true)
+        }}>
           <Plus className="mr-2 h-4 w-4" />
           Nuevo Producto/Servicio
         </Button>
@@ -137,7 +151,10 @@ export default function ProductsPage() {
           {products.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               <p>No hay productos registrados</p>
-              <Button onClick={() => setIsDialogOpen(true)} className="mt-4">
+              <Button onClick={() => {
+                setEditingProduct(null)
+                setIsDialogOpen(true)
+              }} className="mt-4">
                 Agregar Primer Producto
               </Button>
             </div>
@@ -163,7 +180,12 @@ export default function ProductsPage() {
                     <TableCell className="max-w-xs truncate">{product.descripcion || "-"}</TableCell>
                     <TableCell>
                       <div className="flex space-x-2">
-                        <Button variant="ghost" size="sm" title="Editar">
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          title="Editar"
+                          onClick={() => handleEditProduct(product)}
+                        >
                           <Edit className="h-4 w-4" />
                         </Button>
                         <Button 
@@ -192,8 +214,10 @@ export default function ProductsPage() {
 
       <ProductDialog 
         open={isDialogOpen} 
-        onOpenChange={setIsDialogOpen}
+        onOpenChange={handleCloseDialog}
         onProductCreated={loadProducts}
+        product={editingProduct}
+        mode={editingProduct ? 'edit' : 'create'}
       />
     </div>
   )

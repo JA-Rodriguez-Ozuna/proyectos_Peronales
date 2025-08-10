@@ -1,3 +1,5 @@
+"use client"
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -10,10 +12,12 @@ import {
   Bell,
   Shield,
   Download,
-  Upload
+  Upload,
+  AlertTriangle
 } from "lucide-react"
 
 export default function SettingsPage() {
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -227,13 +231,13 @@ export default function SettingsPage() {
             </div>
             <div className="text-center p-4 bg-purple-50 rounded-lg">
               <div className="text-purple-600 font-semibold">Módulos</div>
-              <div className="text-2xl font-bold text-purple-700">5/8</div>
-              <div className="text-sm text-purple-600">Implementados</div>
+              <div className="text-2xl font-bold text-purple-700">8/8</div>
+              <div className="text-sm text-purple-600">Completados</div>
             </div>
             <div className="text-center p-4 bg-yellow-50 rounded-lg">
               <div className="text-yellow-600 font-semibold">Versión</div>
               <div className="text-2xl font-bold text-yellow-700">1.0</div>
-              <div className="text-sm text-yellow-600">Beta</div>
+              <div className="text-sm text-yellow-600">Producción</div>
             </div>
           </div>
         </CardContent>

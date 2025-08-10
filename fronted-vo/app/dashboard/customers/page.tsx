@@ -8,6 +8,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { Plus, Search, Edit, Trash2, Eye } from "lucide-react"
 import { CustomerDialog } from "@/components/customers/customer-dialog"
+import { CustomerDetailsDialog } from "@/components/customers/customer-details-dialog"
+import { CustomerEditDialog } from "@/components/customers/customer-edit-dialog"
 import { api } from "@/lib/api"
 
 interface Customer {
@@ -22,6 +24,10 @@ interface Customer {
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([])
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(null)
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -55,6 +61,16 @@ export default function CustomersPage() {
       customer.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (customer.email && customer.email.toLowerCase().includes(searchTerm.toLowerCase())),
   )
+
+  const handleViewDetails = (customerId: number) => {
+    setSelectedCustomerId(customerId)
+    setIsDetailsDialogOpen(true)
+  }
+
+  const handleEditCustomer = (customer: Customer) => {
+    setEditingCustomer(customer)
+    setIsEditDialogOpen(true)
+  }
 
   const handleDeleteCustomer = async (id: number) => {
     if (!confirm("¿Estás seguro de que quieres eliminar este cliente?")) return
@@ -152,10 +168,20 @@ export default function CustomersPage() {
                     <TableCell className="max-w-xs truncate">{customer.direccion || "-"}</TableCell>
                     <TableCell>
                       <div className="flex space-x-2">
-                        <Button variant="ghost" size="sm" title="Ver detalles">
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          title="Ver detalles"
+                          onClick={() => handleViewDetails(customer.id)}
+                        >
                           <Eye className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="sm" title="Editar">
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          title="Editar"
+                          onClick={() => handleEditCustomer(customer)}
+                        >
                           <Edit className="h-4 w-4" />
                         </Button>
                         <Button 
@@ -186,6 +212,19 @@ export default function CustomersPage() {
         open={isDialogOpen} 
         onOpenChange={setIsDialogOpen}
         onCustomerCreated={loadCustomers}
+      />
+
+      <CustomerDetailsDialog
+        open={isDetailsDialogOpen}
+        onOpenChange={setIsDetailsDialogOpen}
+        customerId={selectedCustomerId}
+      />
+
+      <CustomerEditDialog
+        customer={editingCustomer}
+        open={isEditDialogOpen}
+        onOpenChange={setIsEditDialogOpen}
+        onCustomerUpdated={loadCustomers}
       />
     </div>
   )

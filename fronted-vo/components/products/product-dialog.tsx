@@ -16,19 +16,48 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { api } from "@/lib/api"
 
+interface Product {
+  id: number
+  nombre: string
+  tipo: string
+  precio: number
+  descripcion?: string
+}
+
 interface ProductDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onProductCreated?: () => void
+  product?: Product | null // For edit mode
+  mode?: 'create' | 'edit'
 }
 
-export function ProductDialog({ open, onOpenChange, onProductCreated }: ProductDialogProps) {
+export function ProductDialog({ open, onOpenChange, onProductCreated, product, mode = 'create' }: ProductDialogProps) {
   const [formData, setFormData] = useState({
     nombre: "",
     tipo: "",
     precio: "",
     descripcion: "",
   })
+
+  // Update form when product changes (for edit mode)
+  React.useEffect(() => {
+    if (mode === 'edit' && product) {
+      setFormData({
+        nombre: product.nombre,
+        tipo: product.tipo,
+        precio: product.precio.toString(),
+        descripcion: product.descripcion || "",
+      })
+    } else {
+      setFormData({
+        nombre: "",
+        tipo: "",
+        precio: "",
+        descripcion: "",
+      })
+    }
+  }, [mode, product])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState("")
 
@@ -52,7 +81,7 @@ export function ProductDialog({ open, onOpenChange, onProductCreated }: ProductD
         return
       }
 
-      // Crear producto en el backend
+      // Crear o actualizar producto en el backend
       const productData = {
         nombre: formData.nombre,
         tipo: formData.tipo,
@@ -60,7 +89,9 @@ export function ProductDialog({ open, onOpenChange, onProductCreated }: ProductD
         descripcion: formData.descripcion || ""
       }
 
-      const response = await api.crearProducto(productData)
+      const response = mode === 'edit' && product 
+        ? await api.actualizarProducto(product.id, productData)
+        : await api.crearProducto(productData)
       
       if (response.ok) {
         const result = await response.json()
@@ -78,7 +109,7 @@ export function ProductDialog({ open, onOpenChange, onProductCreated }: ProductD
         onOpenChange(false)
         
         // Notificar éxito
-        alert("¡Producto creado exitosamente!")
+        alert(mode === 'edit' ? "¡Producto actualizado exitosamente!" : "¡Producto creado exitosamente!")
         
         // Recargar lista (si la función existe)
         if (onProductCreated) {
@@ -111,9 +142,9 @@ export function ProductDialog({ open, onOpenChange, onProductCreated }: ProductD
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Nuevo Producto/Servicio</DialogTitle>
+          <DialogTitle>{mode === 'edit' ? 'Editar Producto/Servicio' : 'Nuevo Producto/Servicio'}</DialogTitle>
           <DialogDescription>
-            Crea un nuevo producto o servicio para tu catálogo.
+            {mode === 'edit' ? 'Actualiza la información de este producto o servicio.' : 'Crea un nuevo producto o servicio para tu catálogo.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -194,7 +225,10 @@ export function ProductDialog({ open, onOpenChange, onProductCreated }: ProductD
               Cancelar
             </Button>
             <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Creando..." : "Crear Producto"}
+              {isSubmitting 
+                ? (mode === 'edit' ? "Actualizando..." : "Creando...") 
+                : (mode === 'edit' ? "Actualizar Producto" : "Crear Producto")
+              }
             </Button>
           </DialogFooter>
         </form>

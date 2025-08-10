@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { DollarSign, Clock, AlertTriangle, Plus, RefreshCw } from "lucide-react"
+import { DollarSign, Clock, AlertTriangle, Plus, RefreshCw, Trash2 } from "lucide-react"
 import { useState, useEffect } from "react"
 
 interface CuentaPorCobrar {
@@ -112,6 +112,29 @@ export default function ReceivablesPage() {
     }
   }
 
+  const handleClearAll = async () => {
+    if (!confirm('¿Estás seguro? Esta acción eliminará TODAS las cuentas por cobrar y no se puede deshacer.')) {
+      return
+    }
+    
+    try {
+      const response = await fetch('http://localhost:5000/api/cuentas-por-cobrar/all', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' }
+      })
+      
+      if (response.ok) {
+        alert('Todas las cuentas por cobrar han sido eliminadas')
+        loadData() // Recargar datos
+      } else {
+        alert('Error al eliminar las cuentas')
+      }
+    } catch (error) {
+      console.error('Error clearing all accounts:', error)
+      alert('Error de conexión')
+    }
+  }
+
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault()
     
@@ -154,7 +177,17 @@ export default function ReceivablesPage() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">Cuentas por Cobrar</h1>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <div className="flex gap-2">
+          <Button 
+            variant="destructive" 
+            size="sm"
+            onClick={handleClearAll}
+            className="text-white"
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Vaciar Todas las Cuentas
+          </Button>
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
             <Button>
               <Plus className="h-4 w-4 mr-2" />
@@ -237,6 +270,7 @@ export default function ReceivablesPage() {
             </form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
