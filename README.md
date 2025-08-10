@@ -121,8 +121,6 @@ docker run -p 5000:5000 plusgraphics
 
 **Administrador:**
 - **Email:** admin@plusgraphics.com
-- **Password:** admin123
-
 **Empleados:**
 - vex@plusgraphics.com
 - gilbert@plusgraphics.com  
@@ -130,8 +128,6 @@ docker run -p 5000:5000 plusgraphics
 - sergio@plusgraphics.com
 - hiroshi@plusgraphics.com
 - rene@plusgraphics.com
-
-*(Todos con password: admin123)*
 
 ## 🎯 Funcionalidades Completadas
 
