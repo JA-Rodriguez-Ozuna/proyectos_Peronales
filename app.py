@@ -1648,5 +1648,12 @@ def exportar_reporte():
 
 if __name__ == '__main__':
     init_db()  # Inicializar la base de datos al arrancar
-    app.run(debug=True)
+    
+    # Configuracion para produccion (Render)
+    import os
+    port = int(os.environ.get('PORT', 5000))
+    host = os.environ.get('HOST', '0.0.0.0')
+    debug_mode = os.environ.get('FLASK_ENV', 'production') != 'production'
+    
+    app.run(host=host, port=port, debug=debug_mode)
 
