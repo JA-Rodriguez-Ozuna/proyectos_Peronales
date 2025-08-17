@@ -1696,51 +1696,97 @@ def get_dashboard_stats():
         conn = sqlite3.connect('database.db')
         cursor = conn.cursor()
         
-        # Ganancias totales (suma de TODAS las ventas)
-        cursor.execute('SELECT COALESCE(SUM(total), 0) FROM ventas')
-        ganancias_totales = cursor.fetchone()[0]
+        # Verificar si las tablas existen primero
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = [row[0] for row in cursor.fetchall()]
+        print(f"📋 Tablas encontradas: {tables}")
         
-        # Entregas pendientes (pedidos NO completados)
-        cursor.execute('''
-            SELECT COUNT(*) FROM pedidos 
-            WHERE estado NOT IN ("completado", "entregado", "finalizado")
-        ''')
-        entregas_pendientes = cursor.fetchone()[0] or 0
+        # 1. Ganancias totales (suma de TODAS las ventas)
+        ganancias_totales = 0
+        if 'ventas' in tables:
+            cursor.execute('SELECT COALESCE(SUM(total), 0) FROM ventas')
+            ganancias_totales = cursor.fetchone()[0]
         
-        # Servicios disponibles (productos activos - IMPORTANTE: verificar sin filtro estado)
-        cursor.execute('SELECT COUNT(*) FROM productos')
-        servicios_disponibles = cursor.fetchone()[0] or 0
+        # 2. Entregas pendientes (pedidos NO completados)
+        entregas_pendientes = 0
+        if 'pedidos' in tables:
+            cursor.execute('''
+                SELECT COUNT(*) FROM pedidos 
+                WHERE estado NOT IN ("completado", "entregado", "finalizado")
+            ''')
+            entregas_pendientes = cursor.fetchone()[0] or 0
         
-        # Total por pagar
-        cursor.execute('''
-            SELECT COALESCE(SUM(saldo), 0) FROM cuentas_por_pagar 
-            WHERE estado = "pendiente"
-        ''')
-        total_por_pagar = cursor.fetchone()[0]
+        # 3. Servicios disponibles (productos) - SIN FILTRO ESTADO
+        servicios_disponibles = 0
+        if 'productos' in tables:
+            cursor.execute('SELECT COUNT(*) FROM productos')
+            servicios_disponibles = cursor.fetchone()[0] or 0
+            print(f"📦 Productos encontrados: {servicios_disponibles}")
         
-        # Total por cobrar
-        cursor.execute('''
-            SELECT COALESCE(SUM(saldo), 0) FROM cuentas_por_cobrar 
-            WHERE estado = "pendiente"
-        ''')
-        total_por_cobrar = cursor.fetchone()[0]
+        # 4. Total por pagar (solo si tabla existe)
+        total_por_pagar = 0
+        if 'cuentas_por_pagar' in tables:
+            try:
+                cursor.execute('''
+                    SELECT COALESCE(SUM(saldo), 0) FROM cuentas_por_pagar 
+                    WHERE estado = "pendiente"
+                ''')
+                total_por_pagar = cursor.fetchone()[0] or 0
+            except Exception as e:
+                print(f"⚠️ Error en cuentas_por_pagar: {str(e)}")
+                total_por_pagar = 0
         
-        # Facturas vencidas cuentas por pagar
-        cursor.execute('''
-            SELECT COUNT(*) FROM cuentas_por_pagar 
-            WHERE estado = "pendiente" AND fecha_vencimiento < date('now')
-        ''')
-        facturas_vencidas = cursor.fetchone()[0] or 0
+        # 5. Total por cobrar (solo si tabla existe)
+        total_por_cobrar = 0
+        if 'cuentas_por_cobrar' in tables:
+            try:
+                cursor.execute('''
+                    SELECT COALESCE(SUM(saldo), 0) FROM cuentas_por_cobrar 
+                    WHERE estado = "pendiente"
+                ''')
+                total_por_cobrar = cursor.fetchone()[0] or 0
+            except Exception as e:
+                print(f"⚠️ Error en cuentas_por_cobrar: {str(e)}")
+                total_por_cobrar = 0
         
-        # Pedidos recientes con LEFT JOIN para evitar problemas
-        cursor.execute('''
-            SELECT p.id, c.nombre, pr.nombre, p.total, p.fecha_creacion, p.estado
-            FROM pedidos p 
-            LEFT JOIN clientes c ON p.cliente_id = c.id
-            LEFT JOIN productos pr ON p.producto_id = pr.id
-            ORDER BY p.fecha_creacion DESC LIMIT 5
-        ''')
-        pedidos_recientes = cursor.fetchall()
+        # 6. Facturas vencidas (solo si tabla existe)
+        facturas_vencidas = 0
+        if 'cuentas_por_pagar' in tables:
+            try:
+                cursor.execute('''
+                    SELECT COUNT(*) FROM cuentas_por_pagar 
+                    WHERE estado = "pendiente" AND fecha_vencimiento < date('now')
+                ''')
+                facturas_vencidas = cursor.fetchone()[0] or 0
+            except Exception as e:
+                print(f"⚠️ Error calculando facturas vencidas: {str(e)}")
+                facturas_vencidas = 0
+        
+        # 7. Pedidos recientes (solo si tablas existen)
+        pedidos_recientes = []
+        if 'pedidos' in tables and 'clientes' in tables and 'productos' in tables:
+            try:
+                cursor.execute('''
+                    SELECT p.id, c.nombre, pr.nombre, p.total, p.fecha_creacion, p.estado
+                    FROM pedidos p 
+                    LEFT JOIN clientes c ON p.cliente_id = c.id
+                    LEFT JOIN productos pr ON p.producto_id = pr.id
+                    ORDER BY p.fecha_creacion DESC LIMIT 5
+                ''')
+                pedidos_data = cursor.fetchall()
+                pedidos_recientes = [
+                    {
+                        'id': row[0],
+                        'cliente': row[1] or 'Sin nombre',
+                        'producto': row[2] or 'Sin producto',
+                        'total': float(row[3]) if row[3] else 0,
+                        'fecha': row[4],
+                        'estado': row[5] or 'pendiente'
+                    } for row in pedidos_data
+                ]
+            except Exception as e:
+                print(f"⚠️ Error en pedidos recientes: {str(e)}")
+                pedidos_recientes = []
         
         conn.close()
         
@@ -1751,16 +1797,7 @@ def get_dashboard_stats():
             'total_por_pagar': float(total_por_pagar),
             'total_por_cobrar': float(total_por_cobrar),
             'facturas_vencidas': facturas_vencidas,
-            'pedidos_recientes': [
-                {
-                    'id': row[0],
-                    'cliente': row[1] or 'Sin nombre',
-                    'producto': row[2] or 'Sin producto',
-                    'total': float(row[3]) if row[3] else 0,
-                    'fecha': row[4],
-                    'estado': row[5] or 'pendiente'
-                } for row in pedidos_recientes
-            ]
+            'pedidos_recientes': pedidos_recientes
         }
         
         print(f"📊 Dashboard stats calculadas: {result}")
