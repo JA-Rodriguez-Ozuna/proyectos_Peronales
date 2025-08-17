@@ -1711,6 +1711,107 @@ def landing():
     </html>
     '''
 
+@app.route('/api/dashboard/stats', methods=['GET'])
+def get_dashboard_stats():
+    """Estadisticas generales del dashboard"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Total ventas (ganancias)
+        cursor.execute('SELECT SUM(total) FROM ventas')
+        total_ganancias = cursor.fetchone()[0] or 0
+        
+        # Entregas pendientes (pedidos no completados)
+        cursor.execute('SELECT COUNT(*) FROM pedidos WHERE estado != "completado"')
+        entregas_pendientes = cursor.fetchone()[0] or 0
+        
+        # Servicios disponibles (productos activos)
+        cursor.execute('SELECT COUNT(*) FROM productos')
+        servicios_disponibles = cursor.fetchone()[0] or 0
+        
+        # Total por pagar
+        cursor.execute('SELECT SUM(saldo) FROM cuentas_por_pagar WHERE estado = "pendiente"')
+        total_por_pagar = cursor.fetchone()[0] or 0
+        
+        # Facturas vencidas
+        cursor.execute('''
+            SELECT COUNT(*) FROM cuentas_por_pagar 
+            WHERE estado = "pendiente" AND fecha_vencimiento < date('now')
+        ''')
+        facturas_vencidas = cursor.fetchone()[0] or 0
+        
+        # Total por cobrar 
+        cursor.execute('SELECT SUM(saldo) FROM cuentas_por_cobrar WHERE estado = "pendiente"')
+        total_por_cobrar = cursor.fetchone()[0] or 0
+        
+        # Pedidos recientes
+        cursor.execute('''
+            SELECT p.id, c.nombre, pr.nombre as producto, p.total, p.fecha_creacion
+            FROM pedidos p 
+            JOIN clientes c ON p.cliente_id = c.id
+            JOIN productos pr ON p.producto_id = pr.id
+            ORDER BY p.fecha_creacion DESC LIMIT 5
+        ''')
+        pedidos_recientes = cursor.fetchall()
+        
+        conn.close()
+        
+        return jsonify({
+            'ganancias_totales': total_ganancias,
+            'entregas_pendientes': entregas_pendientes,
+            'servicios_disponibles': servicios_disponibles,
+            'total_por_pagar': total_por_pagar,
+            'total_por_cobrar': total_por_cobrar,
+            'facturas_vencidas': facturas_vencidas,
+            'pedidos_recientes': [
+                {
+                    'id': row[0],
+                    'cliente': row[1],
+                    'producto': row[2],
+                    'total': row[3],
+                    'fecha': row[4]
+                } for row in pedidos_recientes
+            ]
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/debug/database', methods=['GET'])
+def debug_database():
+    """Debug: verificar contenido base de datos"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Contar registros en cada tabla
+        tables = ['clientes', 'productos', 'pedidos', 'ventas', 'cuentas_por_cobrar', 'cuentas_por_pagar']
+        counts = {}
+        
+        for table in tables:
+            cursor.execute(f'SELECT COUNT(*) FROM {table}')
+            counts[table] = cursor.fetchone()[0]
+        
+        # Verificar datos sample
+        cursor.execute('SELECT * FROM ventas LIMIT 3')
+        ventas_sample = cursor.fetchall()
+        
+        cursor.execute('SELECT * FROM pedidos LIMIT 3')
+        pedidos_sample = cursor.fetchall()
+        
+        conn.close()
+        
+        return jsonify({
+            'tabla_counts': counts,
+            'ventas_sample': [dict(row) for row in ventas_sample],
+            'pedidos_sample': [dict(row) for row in pedidos_sample],
+            'timestamp': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/test')
 def api_test():
     """Endpoint de prueba para verificar funcionamiento"""

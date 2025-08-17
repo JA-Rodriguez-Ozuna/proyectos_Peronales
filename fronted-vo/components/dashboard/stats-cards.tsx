@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { DollarSign, Calendar, Briefcase, CreditCard, AlertTriangle } from "lucide-react"
-import { api } from "@/lib/api"
+// API Configuration
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://plus-graphics.onrender.com'
 
 export function StatsCards() {
   const [stats, setStats] = useState({
@@ -11,65 +12,38 @@ export function StatsCards() {
     entregas: 0,
     proyectosDisponibles: 0,
     totalPorPagar: 0,
+    totalPorCobrar: 0,
     facturasVencidas: 0,
     loading: true
   })
 
-  // Cargar estadísticas del backend
+  // Cargar estadísticas del backend usando nuevo endpoint unificado
   const loadStats = async () => {
     try {
-      // Cargar ventas, pedidos, productos y cuentas por pagar en paralelo
-      const [ventasRes, pedidosRes, productosRes, payablesStatsRes] = await Promise.all([
-        api.getVentas(),
-        api.getPedidos(),
-        api.getProductos(),
-        fetch('http://localhost:5000/api/cuentas-por-pagar/stats')
-      ])
-
-      let totalGanancias = 0
-      let entregas = 0
-      let proyectosDisponibles = 0
-      let totalPorPagar = 0
-      let facturasVencidas = 0
-
-      // Calcular ganancias totales de ventas
-      if (ventasRes.ok) {
-        const ventas = await ventasRes.json()
-        totalGanancias = ventas.reduce((sum: number, venta: any) => sum + venta.total, 0)
+      console.log('🔄 Cargando estadísticas dashboard...')
+      
+      // Usar el nuevo endpoint unificado /api/dashboard/stats
+      const response = await fetch(`${API_BASE_URL}/api/dashboard/stats`)
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
       }
-
-      // Calcular entregas pendientes (pedidos no terminados)
-      if (pedidosRes.ok) {
-        const pedidos = await pedidosRes.json()
-        entregas = pedidos.filter((pedido: any) => 
-          pedido.estado !== 'terminado' && pedido.estado !== 'completado'
-        ).length
-      }
-
-      // Contar productos disponibles
-      if (productosRes.ok) {
-        const productos = await productosRes.json()
-        proyectosDisponibles = productos.length
-      }
-
-      // Cargar estadísticas de cuentas por pagar
-      if (payablesStatsRes.ok) {
-        const payablesStats = await payablesStatsRes.json()
-        totalPorPagar = payablesStats.total_por_pagar
-        facturasVencidas = payablesStats.facturas_vencidas
-      }
+      
+      const dashboardStats = await response.json()
+      console.log('📊 Estadísticas cargadas:', dashboardStats)
 
       setStats({
-        totalGanancias,
-        entregas,
-        proyectosDisponibles,
-        totalPorPagar,
-        facturasVencidas,
+        totalGanancias: dashboardStats.ganancias_totales || 0,
+        entregas: dashboardStats.entregas_pendientes || 0,
+        proyectosDisponibles: dashboardStats.servicios_disponibles || 0,
+        totalPorPagar: dashboardStats.total_por_pagar || 0,
+        totalPorCobrar: dashboardStats.total_por_cobrar || 0,
+        facturasVencidas: dashboardStats.facturas_vencidas || 0,
         loading: false
       })
 
     } catch (error) {
-      console.error("Error loading stats:", error)
+      console.error("❌ Error loading dashboard stats:", error)
       setStats(prev => ({ ...prev, loading: false }))
     }
   }
@@ -99,7 +73,7 @@ export function StatsCards() {
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-6">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium text-gray-600">Ganancias Totales</CardTitle>
@@ -141,6 +115,17 @@ export function StatsCards() {
         <CardContent>
           <div className="text-2xl font-bold">${stats.totalPorPagar.toFixed(2)}</div>
           <p className="text-xs text-gray-500 mt-1">Deudas pendientes</p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium text-gray-600">Total por Cobrar</CardTitle>
+          <DollarSign className="h-4 w-4 text-orange-600" />
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">${stats.totalPorCobrar.toFixed(2)}</div>
+          <p className="text-xs text-gray-500 mt-1">Por cobrar a clientes</p>
         </CardContent>
       </Card>
 

@@ -74,8 +74,8 @@ export default function ReceivablesPage() {
   const loadData = async () => {
     try {
       const [receivablesRes, statsRes] = await Promise.all([
-        fetch('${API_BASE_URL}/api/cuentas-por-cobrar'),
-        fetch('${API_BASE_URL}/api/cuentas-por-cobrar/stats')
+        fetch(`${API_BASE_URL}/api/cuentas-por-cobrar`),
+        fetch(`${API_BASE_URL}/api/cuentas-por-cobrar/stats`)
       ])
       
       const receivablesData = await receivablesRes.json()
@@ -92,7 +92,7 @@ export default function ReceivablesPage() {
 
   const loadClientes = async () => {
     try {
-      const response = await fetch('${API_BASE_URL}/api/clientes')
+      const response = await fetch(`${API_BASE_URL}/api/clientes`)
       const data = await response.json()
       setClientes(data)
     } catch (error) {
