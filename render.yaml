@@ -1,37 +1,24 @@
 services:
-  # Backend API Service
   - type: web
-    name: plusgraphics-api
+    name: plus-graphics
     runtime: python3
     plan: free
-    buildCommand: pip install -r requirements-clean.txt
+    buildCommand: pip install -r requirements.txt
     startCommand: python app.py
     envVars:
+      - key: ADMIN_EMAIL
+        value: admin@plusgraphics.com
+      - key: ADMIN_PASSWORD
+        value: PlusGraphics2024!
+      - key: EMPLOYEE_EMAIL
+        value: empleado@plusgraphics.com
+      - key: EMPLOYEE_PASSWORD
+        value: Empleado2024!
       - key: FLASK_ENV
+        value: production
+      - key: DATABASE_URL
+        value: sqlite:///database.db
+      - key: NODE_ENV
         value: production
       - key: PORT
         value: 5000
-    healthCheckPath: /api/usuarios
-
-  # Frontend Service (if deploying separately)
-  - type: web
-    name: plusgraphics-frontend
-    runtime: node
-    plan: free
-    rootDir: fronted-vo
-    buildCommand: npm install && npm run build
-    startCommand: npm start
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: NEXT_PUBLIC_API_URL
-        fromService:
-          type: web
-          name: plusgraphics-api
-          property: host
-
-databases:
-  - name: plusgraphics-db
-    databaseName: plusgraphics
-    user: postgres
-    plan: free

@@ -6,6 +6,28 @@ from models import init_db
 import io
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
+import os
+from dotenv import load_dotenv
+
+# Cargar variables de entorno
+load_dotenv()
+
+# Credenciales desde variables de entorno para multiple acceso simultaneo
+ADMIN_EMAIL = os.getenv('ADMIN_EMAIL', 'admin@plusgraphics.com')
+ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', 'PlusGraphics2024!')
+EMPLOYEE_EMAIL = os.getenv('EMPLOYEE_EMAIL', 'empleado@plusgraphics.com')  
+EMPLOYEE_PASSWORD = os.getenv('EMPLOYEE_PASSWORD', 'Empleado2024!')
+
+def check_login_credentials(email, password):
+    """
+    Verificar credenciales desde variables de entorno
+    Permite multiple acceso simultaneo con mismas credenciales
+    """
+    valid_credentials = {
+        ADMIN_EMAIL: ADMIN_PASSWORD,
+        EMPLOYEE_EMAIL: EMPLOYEE_PASSWORD
+    }
+    return email in valid_credentials and valid_credentials[email] == password
 
 # Conexión a la base de datos
 def get_db_connection():
@@ -19,17 +41,21 @@ CORS(app)  # Habilita CORS para todas las rutas
 @app.route('/api/auth/login', methods=['POST'])
 def login():
     data = request.json
-    conn = get_db_connection()
     
-    user = conn.execute('''
-        SELECT id, name, email, role, created_at 
-        FROM usuarios WHERE email = ? AND password = ?
-    ''', (data['email'], data['password'])).fetchone()
-    
-    conn.close()
-    
-    if user:
-        user_data = dict(user)
+    # Verificar credenciales usando variables de entorno
+    if check_login_credentials(data['email'], data['password']):
+        # Determinar rol basado en email
+        role = 'admin' if data['email'] == ADMIN_EMAIL else 'employee'
+        name = 'Administrador' if data['email'] == ADMIN_EMAIL else 'Empleado'
+        
+        user_data = {
+            'id': 1 if role == 'admin' else 2,
+            'name': name,
+            'email': data['email'],
+            'role': role,
+            'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        
         return jsonify({
             'success': True,
             'user': user_data,
