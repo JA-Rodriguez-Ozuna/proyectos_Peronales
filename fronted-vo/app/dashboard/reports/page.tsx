@@ -8,6 +8,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { TrendingUp, DollarSign, Users, FileText, Download, Calendar, Loader2 } from "lucide-react"
 import { useState, useEffect } from "react"
 
+// API Configuration
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://plus-graphics.onrender.com'
+
 // Tipos para TypeScript
 interface DashboardData {
   ventas_totales: number;
@@ -68,11 +71,11 @@ export default function ReportsPage() {
     
     try {
       const endpoints = [
-        `http://localhost:5000/api/reportes/dashboard?periodo=${periodoSeleccionado}`,
-        `http://localhost:5000/api/reportes/ingresos-tipo?periodo=${periodoSeleccionado}`,
-        `http://localhost:5000/api/reportes/tendencia?periodo=${periodoSeleccionado}`,
-        `http://localhost:5000/api/reportes/productos-top?periodo=${periodoSeleccionado}`,
-        `http://localhost:5000/api/reportes/clientes-top?periodo=${periodoSeleccionado}`
+        `${API_BASE_URL}/api/reportes/dashboard?periodo=${periodoSeleccionado}`,
+        `${API_BASE_URL}/api/reportes/ingresos-tipo?periodo=${periodoSeleccionado}`,
+        `${API_BASE_URL}/api/reportes/tendencia?periodo=${periodoSeleccionado}`,
+        `${API_BASE_URL}/api/reportes/productos-top?periodo=${periodoSeleccionado}`,
+        `${API_BASE_URL}/api/reportes/clientes-top?periodo=${periodoSeleccionado}`
       ]
       
       const responses = await Promise.all(
@@ -96,7 +99,7 @@ export default function ReportsPage() {
   // Función para exportar
   const exportarReporte = async () => {
     try {
-      const response = await fetch(`http://localhost:5000/api/reportes/exportar?periodo=${periodo}&formato=excel`)
+      const response = await fetch(`${API_BASE_URL}/api/reportes/exportar?periodo=${periodo}&formato=excel`)
       
       if (response.ok) {
         const blob = await response.blob()

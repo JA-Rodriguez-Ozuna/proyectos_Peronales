@@ -11,6 +11,9 @@ import { Textarea } from "@/components/ui/textarea"
 import { CreditCard, Clock, AlertTriangle, Plus, RefreshCw, Eye, Trash2 } from "lucide-react"
 import { useState, useEffect } from "react"
 
+// API Configuration
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://plus-graphics.onrender.com'
+
 interface CuentaPorPagar {
   id: number
   codigo_factura: string
@@ -60,8 +63,8 @@ export default function PayablesPage() {
   const loadData = async () => {
     try {
       const [payablesRes, statsRes] = await Promise.all([
-        fetch('http://localhost:5000/api/cuentas-por-pagar'),
-        fetch('http://localhost:5000/api/cuentas-por-pagar/stats')
+        fetch(`${API_BASE_URL}/api/cuentas-por-pagar`),
+        fetch(`${API_BASE_URL}/api/cuentas-por-pagar/stats`)
       ])
       
       const payablesData = await payablesRes.json()
@@ -78,7 +81,7 @@ export default function PayablesPage() {
 
   const handleMarcarPagado = async (id: number) => {
     try {
-      const response = await fetch(`http://localhost:5000/api/cuentas-por-pagar/${id}/marcar-pagado`, {
+      const response = await fetch(`${API_BASE_URL}/api/cuentas-por-pagar/${id}/marcar-pagado`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' }
       })
@@ -95,7 +98,7 @@ export default function PayablesPage() {
     e.preventDefault()
     
     try {
-      const response = await fetch('http://localhost:5000/api/cuentas-por-pagar', {
+      const response = await fetch(`${API_BASE_URL}/api/cuentas-por-pagar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -125,7 +128,7 @@ export default function PayablesPage() {
     }
     
     try {
-      const response = await fetch('http://localhost:5000/api/cuentas-por-pagar/all', {
+      const response = await fetch(`${API_BASE_URL}/api/cuentas-por-pagar/all`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' }
       })

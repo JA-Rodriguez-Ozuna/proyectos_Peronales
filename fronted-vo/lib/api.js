@@ -1,5 +1,10 @@
 // Configuracion centralizada para llamadas API
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://plus-graphics.onrender.com'
+
+// Debug logging para verificar URLs en Vercel
+console.log('🔍 API_BASE_URL actual:', API_BASE_URL)
+console.log('🌐 NEXT_PUBLIC_API_URL:', process.env.NEXT_PUBLIC_API_URL)
+console.log('🏗️ NODE_ENV:', process.env.NODE_ENV)
 
 const makeRequest = async (url, options = {}) => {
   const config = {
@@ -16,7 +21,10 @@ const makeRequest = async (url, options = {}) => {
   }
 
   try {
-    const response = await fetch(`${API_BASE_URL}/api${url}`, config)
+    const fullUrl = `${API_BASE_URL}/api${url}`
+    console.log('📡 Llamando API:', fullUrl)
+    
+    const response = await fetch(fullUrl, config)
     
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`)

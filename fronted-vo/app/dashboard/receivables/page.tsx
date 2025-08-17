@@ -12,6 +12,9 @@ import { Textarea } from "@/components/ui/textarea"
 import { DollarSign, Clock, AlertTriangle, Plus, RefreshCw, Trash2 } from "lucide-react"
 import { useState, useEffect } from "react"
 
+// API Configuration
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://plus-graphics.onrender.com'
+
 interface CuentaPorCobrar {
   id: number
   numero_factura: string
@@ -71,8 +74,8 @@ export default function ReceivablesPage() {
   const loadData = async () => {
     try {
       const [receivablesRes, statsRes] = await Promise.all([
-        fetch('http://localhost:5000/api/cuentas-por-cobrar'),
-        fetch('http://localhost:5000/api/cuentas-por-cobrar/stats')
+        fetch('${API_BASE_URL}/api/cuentas-por-cobrar'),
+        fetch('${API_BASE_URL}/api/cuentas-por-cobrar/stats')
       ])
       
       const receivablesData = await receivablesRes.json()
@@ -89,7 +92,7 @@ export default function ReceivablesPage() {
 
   const loadClientes = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/clientes')
+      const response = await fetch('${API_BASE_URL}/api/clientes')
       const data = await response.json()
       setClientes(data)
     } catch (error) {
@@ -99,7 +102,7 @@ export default function ReceivablesPage() {
 
   const handleMarcarPagado = async (id: number) => {
     try {
-      const response = await fetch(`http://localhost:5000/api/cuentas-por-cobrar/${id}/marcar-pagado`, {
+      const response = await fetch(`${API_BASE_URL}/api/cuentas-por-cobrar/${id}/marcar-pagado`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' }
       })
@@ -118,7 +121,7 @@ export default function ReceivablesPage() {
     }
     
     try {
-      const response = await fetch('http://localhost:5000/api/cuentas-por-cobrar/all', {
+      const response = await fetch('${API_BASE_URL}/api/cuentas-por-cobrar/all', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' }
       })
@@ -139,7 +142,7 @@ export default function ReceivablesPage() {
     e.preventDefault()
     
     try {
-      const response = await fetch('http://localhost:5000/api/cuentas-por-cobrar', {
+      const response = await fetch('${API_BASE_URL}/api/cuentas-por-cobrar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
