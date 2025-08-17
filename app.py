@@ -1335,28 +1335,28 @@ def get_tendencia():
             # Agrupar por fecha simple
             query = '''
                 SELECT 
-                    DATE(v.fecha_creacion) as fecha,
+                    DATE(v.fecha) as fecha,
                     COALESCE(SUM(CASE WHEN UPPER(p.tipo) = 'VFX' THEN v.total ELSE 0 END), 0) as vfx,
                     COALESCE(SUM(CASE WHEN UPPER(p.tipo) = 'GFX' THEN v.total ELSE 0 END), 0) as gfx,
                     COALESCE(SUM(v.total), 0) as total
                 FROM ventas v
                 JOIN productos p ON v.producto_id = p.id
-                GROUP BY DATE(v.fecha_creacion)
-                ORDER BY DATE(v.fecha_creacion) DESC
+                GROUP BY DATE(v.fecha)
+                ORDER BY DATE(v.fecha) DESC
                 LIMIT 7
             '''
         else:
             # Agrupar por mes (formato simple)
             query = '''
                 SELECT 
-                    strftime('%Y-%m', v.fecha_creacion) as mes,
+                    strftime('%Y-%m', v.fecha) as mes,
                     COALESCE(SUM(CASE WHEN UPPER(p.tipo) = 'VFX' THEN v.total ELSE 0 END), 0) as vfx,
                     COALESCE(SUM(CASE WHEN UPPER(p.tipo) = 'GFX' THEN v.total ELSE 0 END), 0) as gfx,
                     COALESCE(SUM(v.total), 0) as total
                 FROM ventas v
                 JOIN productos p ON v.producto_id = p.id
-                GROUP BY strftime('%Y-%m', v.fecha_creacion)
-                ORDER BY strftime('%Y-%m', v.fecha_creacion) DESC
+                GROUP BY strftime('%Y-%m', v.fecha)
+                ORDER BY strftime('%Y-%m', v.fecha) DESC
                 LIMIT 6
             '''
         
@@ -1368,27 +1368,29 @@ def get_tendencia():
             if periodo == 'semana':
                 query_pedidos = '''
                     SELECT 
-                        DATE(p.fecha_creacion) as fecha,
-                        COALESCE(SUM(CASE WHEN UPPER(pr.tipo) = 'VFX' THEN p.total ELSE 0 END), 0) as vfx,
-                        COALESCE(SUM(CASE WHEN UPPER(pr.tipo) = 'GFX' THEN p.total ELSE 0 END), 0) as gfx,
-                        COALESCE(SUM(p.total), 0) as total
+                        DATE(p.fecha) as fecha,
+                        COALESCE(SUM(CASE WHEN UPPER(pr.tipo) = 'VFX' THEN pp.assigned_payment ELSE 0 END), 0) as vfx,
+                        COALESCE(SUM(CASE WHEN UPPER(pr.tipo) = 'GFX' THEN pp.assigned_payment ELSE 0 END), 0) as gfx,
+                        COALESCE(SUM(pp.assigned_payment), 0) as total
                     FROM pedidos p
-                    JOIN productos pr ON p.producto_id = pr.id
-                    GROUP BY DATE(p.fecha_creacion)
-                    ORDER BY DATE(p.fecha_creacion) DESC
+                    JOIN pedido_productos pp ON p.id = pp.pedido_id
+                    JOIN productos pr ON pp.producto_id = pr.id
+                    GROUP BY DATE(p.fecha)
+                    ORDER BY DATE(p.fecha) DESC
                     LIMIT 7
                 '''
             else:
                 query_pedidos = '''
                     SELECT 
-                        strftime('%Y-%m', p.fecha_creacion) as mes,
-                        COALESCE(SUM(CASE WHEN UPPER(pr.tipo) = 'VFX' THEN p.total ELSE 0 END), 0) as vfx,
-                        COALESCE(SUM(CASE WHEN UPPER(pr.tipo) = 'GFX' THEN p.total ELSE 0 END), 0) as gfx,
-                        COALESCE(SUM(p.total), 0) as total
+                        strftime('%Y-%m', p.fecha) as mes,
+                        COALESCE(SUM(CASE WHEN UPPER(pr.tipo) = 'VFX' THEN pp.assigned_payment ELSE 0 END), 0) as vfx,
+                        COALESCE(SUM(CASE WHEN UPPER(pr.tipo) = 'GFX' THEN pp.assigned_payment ELSE 0 END), 0) as gfx,
+                        COALESCE(SUM(pp.assigned_payment), 0) as total
                     FROM pedidos p
-                    JOIN productos pr ON p.producto_id = pr.id
-                    GROUP BY strftime('%Y-%m', p.fecha_creacion)
-                    ORDER BY strftime('%Y-%m', p.fecha_creacion) DESC
+                    JOIN pedido_productos pp ON p.id = pp.pedido_id
+                    JOIN productos pr ON pp.producto_id = pr.id
+                    GROUP BY strftime('%Y-%m', p.fecha)
+                    ORDER BY strftime('%Y-%m', p.fecha) DESC
                     LIMIT 6
                 '''
             cursor.execute(query_pedidos)
@@ -1501,7 +1503,7 @@ def get_clientes_top():
                 c.nombre,
                 COUNT(v.id) as pedidos,
                 COALESCE(SUM(v.total), 0) as ingresos,
-                MAX(v.fecha_creacion) as ultimo_pedido
+                MAX(v.fecha) as ultimo_pedido
             FROM ventas v
             JOIN clientes c ON v.cliente_id = c.id
             GROUP BY c.id, c.nombre
@@ -1517,7 +1519,7 @@ def get_clientes_top():
                     c.nombre,
                     COUNT(pe.id) as pedidos,
                     COALESCE(SUM(pe.total), 0) as ingresos,
-                    MAX(pe.fecha_creacion) as ultimo_pedido
+                    MAX(pe.fecha) as ultimo_pedido
                 FROM pedidos pe
                 JOIN clientes c ON pe.cliente_id = c.id
                 GROUP BY c.id, c.nombre
@@ -1577,7 +1579,7 @@ def exportar_reporte():
         ws1['A1'].fill = header_fill
         ws1['B1'].fill = header_fill
         
-        # Obtener datos del dashboard
+        # Obtener datos del dashboard - PRIMERO INTENTAR CON VENTAS
         dashboard_data = conn.execute('''
             SELECT 
                 COALESCE(SUM(total), 0) as ventas_totales,
@@ -1586,12 +1588,34 @@ def exportar_reporte():
             WHERE fecha >= ? AND fecha <= ?
         ''', (inicio, fin)).fetchone()
         
+        # FALLBACK: Si no hay ventas, usar pedidos
+        if dashboard_data['total_pedidos'] == 0:
+            dashboard_data = conn.execute('''
+                SELECT 
+                    COALESCE(SUM(pp.assigned_payment), 0) as ventas_totales,
+                    COUNT(DISTINCT p.id) as total_pedidos
+                FROM pedidos p
+                LEFT JOIN pedido_productos pp ON p.id = pp.pedido_id
+                WHERE p.fecha >= ? AND p.fecha <= ?
+            ''', (inicio, fin)).fetchone()
+            
         valor_promedio = dashboard_data['ventas_totales'] / dashboard_data['total_pedidos'] if dashboard_data['total_pedidos'] > 0 else 0
-        nuevos_clientes = conn.execute('''
+        
+        # Clientes únicos - PRIMERO VENTAS, LUEGO PEDIDOS
+        nuevos_clientes_query = conn.execute('''
             SELECT COUNT(DISTINCT cliente_id) as nuevos
             FROM ventas 
             WHERE fecha >= ? AND fecha <= ?
-        ''', (inicio, fin)).fetchone()['nuevos']
+        ''', (inicio, fin)).fetchone()
+        
+        nuevos_clientes = nuevos_clientes_query['nuevos']
+        if nuevos_clientes == 0:
+            nuevos_clientes_query = conn.execute('''
+                SELECT COUNT(DISTINCT cliente_id) as nuevos
+                FROM pedidos 
+                WHERE fecha >= ? AND fecha <= ?
+            ''', (inicio, fin)).fetchone()
+            nuevos_clientes = nuevos_clientes_query['nuevos']
         
         ws1['A2'] = 'Ventas Totales'
         ws1['B2'] = f"${dashboard_data['ventas_totales']:.2f}"
@@ -1611,6 +1635,7 @@ def exportar_reporte():
         ws2['B1'].font = header_font
         ws2['C1'].font = header_font
         
+        # Ingresos por tipo - PRIMERO VENTAS, LUEGO PEDIDOS
         ingresos_tipo = conn.execute('''
             SELECT 
                 p.tipo,
@@ -1620,6 +1645,19 @@ def exportar_reporte():
             WHERE v.fecha >= ? AND v.fecha <= ?
             GROUP BY p.tipo
         ''', (inicio, fin)).fetchall()
+        
+        # FALLBACK: Si no hay datos en ventas, usar pedidos
+        if not ingresos_tipo:
+            ingresos_tipo = conn.execute('''
+                SELECT 
+                    pr.tipo,
+                    COALESCE(SUM(pp.assigned_payment), 0) as total_ingresos
+                FROM pedidos p
+                JOIN pedido_productos pp ON p.id = pp.pedido_id
+                JOIN productos pr ON pp.producto_id = pr.id
+                WHERE p.fecha >= ? AND p.fecha <= ?
+                GROUP BY pr.tipo
+            ''', (inicio, fin)).fetchall()
         
         total_general = sum(row['total_ingresos'] for row in ingresos_tipo)
         row_num = 2
@@ -1640,6 +1678,7 @@ def exportar_reporte():
         for col in ['A1', 'B1', 'C1', 'D1', 'E1']:
             ws3[col].font = header_font
         
+        # Productos top - PRIMERO VENTAS, LUEGO PEDIDOS
         productos_top = conn.execute('''
             SELECT 
                 p.nombre,
@@ -1653,6 +1692,23 @@ def exportar_reporte():
             ORDER BY ingresos DESC
             LIMIT 10
         ''', (inicio, fin)).fetchall()
+        
+        # FALLBACK: Si no hay ventas, usar pedidos
+        if not productos_top:
+            productos_top = conn.execute('''
+                SELECT 
+                    pr.nombre,
+                    pr.tipo,
+                    COUNT(p.id) as pedidos,
+                    COALESCE(SUM(pp.assigned_payment), 0) as ingresos
+                FROM pedidos p
+                JOIN pedido_productos pp ON p.id = pp.pedido_id
+                JOIN productos pr ON pp.producto_id = pr.id
+                WHERE p.fecha >= ? AND p.fecha <= ?
+                GROUP BY pr.id, pr.nombre, pr.tipo
+                ORDER BY ingresos DESC
+                LIMIT 10
+            ''', (inicio, fin)).fetchall()
         
         row_num = 2
         for row in productos_top:
@@ -1674,6 +1730,7 @@ def exportar_reporte():
         for col in ['A1', 'B1', 'C1', 'D1', 'E1']:
             ws4[col].font = header_font
         
+        # Mejores clientes - PRIMERO VENTAS, LUEGO PEDIDOS
         clientes_top = conn.execute('''
             SELECT 
                 c.nombre,
@@ -1687,6 +1744,23 @@ def exportar_reporte():
             ORDER BY ingresos DESC
             LIMIT 10
         ''', (inicio, fin)).fetchall()
+        
+        # FALLBACK: Si no hay ventas, usar pedidos
+        if not clientes_top:
+            clientes_top = conn.execute('''
+                SELECT 
+                    c.nombre,
+                    COUNT(p.id) as pedidos,
+                    COALESCE(SUM(pp.assigned_payment), 0) as ingresos,
+                    MAX(p.fecha) as ultimo_pedido
+                FROM pedidos p
+                LEFT JOIN pedido_productos pp ON p.id = pp.pedido_id
+                JOIN clientes c ON p.cliente_id = c.id
+                WHERE p.fecha >= ? AND p.fecha <= ?
+                GROUP BY c.id, c.nombre
+                ORDER BY ingresos DESC
+                LIMIT 10
+            ''', (inicio, fin)).fetchall()
         
         row_num = 2
         for row in clientes_top:
@@ -1845,11 +1919,11 @@ def get_dashboard_stats():
         if 'pedidos' in tables and 'clientes' in tables and 'productos' in tables:
             try:
                 cursor.execute('''
-                    SELECT p.id, c.nombre, pr.nombre, p.total, p.fecha_creacion, p.estado
+                    SELECT p.id, c.nombre, pr.nombre, p.total, p.fecha, p.estado
                     FROM pedidos p 
                     LEFT JOIN clientes c ON p.cliente_id = c.id
                     LEFT JOIN productos pr ON p.producto_id = pr.id
-                    ORDER BY p.fecha_creacion DESC LIMIT 5
+                    ORDER BY p.fecha DESC LIMIT 5
                 ''')
                 pedidos_data = cursor.fetchall()
                 pedidos_recientes = [
@@ -1957,12 +2031,12 @@ def system_diagnosis():
         diagnosis['productos_sample'] = [{'id': r[0], 'nombre': r[1], 'precio': r[2], 'estado': r[3]} for r in productos_data]
         
         # PEDIDOS
-        cursor.execute('SELECT id, cliente_id, producto_id, total, estado, fecha_creacion FROM pedidos ORDER BY id DESC LIMIT 5')
+        cursor.execute('SELECT id, cliente_id, producto_id, total, estado, fecha FROM pedidos ORDER BY id DESC LIMIT 5')
         pedidos_data = cursor.fetchall()
         diagnosis['pedidos_sample'] = [{'id': r[0], 'cliente_id': r[1], 'producto_id': r[2], 'total': r[3], 'estado': r[4], 'fecha': r[5]} for r in pedidos_data]
         
         # VENTAS
-        cursor.execute('SELECT id, cliente_id, producto_id, total, fecha_creacion FROM ventas ORDER BY id DESC LIMIT 5')
+        cursor.execute('SELECT id, cliente_id, producto_id, total, fecha FROM ventas ORDER BY id DESC LIMIT 5')
         ventas_data = cursor.fetchall()
         diagnosis['ventas_sample'] = [{'id': r[0], 'cliente_id': r[1], 'producto_id': r[2], 'total': r[3], 'fecha': r[4]} for r in ventas_data]
         

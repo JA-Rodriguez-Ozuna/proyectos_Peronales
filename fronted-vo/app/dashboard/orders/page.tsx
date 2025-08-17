@@ -73,6 +73,11 @@ export default function OrdersPage() {
     loadOrders()
   }, [])
 
+  // Aplicar filtros cuando cambien los filtros o los pedidos
+  useEffect(() => {
+    applyFilters()
+  }, [filters, orders])
+
   const handleDeleteOrder = async (id: number) => {
     if (!confirm("¿Estás seguro de que quieres eliminar este pedido?")) return
 
@@ -89,12 +94,6 @@ export default function OrdersPage() {
       console.error("Error deleting order:", error)
     }
   }
-
-  // Obtener valores únicos para los filtros
-  const uniqueClients = [...new Set(orders.map((order) => order.cliente_nombre).filter((name): name is string => Boolean(name)))]
-  const uniqueStatuses = [...new Set(orders.map((order) => order.estado))]
-  const uniqueAssignees = [...new Set(orders.map((order) => order.encargado_principal).filter((name): name is string => Boolean(name)))]
-  const uniqueItems = [...new Set(orders.flatMap((order) => order.productos.map((item) => item.nombre)))]
 
   // Función para aplicar filtros
   const applyFilters = () => {
@@ -126,6 +125,12 @@ export default function OrdersPage() {
 
     setFilteredOrders(filtered)
   }
+
+  // Obtener valores únicos para los filtros
+  const uniqueClients = [...new Set(orders.map((order) => order.cliente_nombre).filter((name): name is string => Boolean(name)))]
+  const uniqueStatuses = [...new Set(orders.map((order) => order.estado))]
+  const uniqueAssignees = [...new Set(orders.map((order) => order.encargado_principal).filter((name): name is string => Boolean(name)))]
+  const uniqueItems = [...new Set(orders.flatMap((order) => order.productos.map((item) => item.nombre)))]
 
   // Limpiar filtros
   const clearFilters = () => {
@@ -348,11 +353,13 @@ export default function OrdersPage() {
               </div>
 
               <div className="flex gap-2">
-                <Button onClick={applyFilters}>Aplicar Filtros</Button>
                 <Button variant="outline" onClick={clearFilters}>
                   <X className="h-4 w-4 mr-2" />
-                  Limpiar
+                  Limpiar Filtros
                 </Button>
+                <div className="text-sm text-gray-600 flex items-center">
+                  Filtros se aplican automáticamente
+                </div>
               </div>
             </CollapsibleContent>
           </Collapsible>
