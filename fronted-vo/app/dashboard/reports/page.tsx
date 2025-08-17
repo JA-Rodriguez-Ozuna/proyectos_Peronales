@@ -349,42 +349,34 @@ export default function ReportsPage() {
         </CardContent>
       </Card>
 
-      {/* Top Clientes */}
+      {/* Análisis de Clientes */}
       <Card>
         <CardHeader>
-          <CardTitle>Mejores Clientes</CardTitle>
+          <CardTitle>Análisis de Clientes</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Cliente</TableHead>
-                <TableHead>Pedidos</TableHead>
-                <TableHead>Ingresos Totales</TableHead>
-                <TableHead>Promedio por Pedido</TableHead>
-                <TableHead>Último Pedido</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {clientesTop.length > 0 ? (
-                clientesTop.map((client, index) => (
-                  <TableRow key={index}>
-                    <TableCell className="font-medium">{client.nombre}</TableCell>
-                    <TableCell>{client.pedidos}</TableCell>
-                    <TableCell className="font-semibold text-green-600">${client.ingresos.toLocaleString()}</TableCell>
-                    <TableCell>${client.promedio.toFixed(2)}</TableCell>
-                    <TableCell>{client.ultimo_pedido}</TableCell>
-                  </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-center py-4 text-gray-500">
-                    No hay datos de clientes disponibles
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-8 text-center">
+            <div className="mx-auto w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
+              <Users className="h-8 w-8 text-blue-600" />
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              📊 Análisis de Mejores Clientes
+            </h3>
+            <p className="text-gray-600 mb-3">
+              Funcionalidad avanzada disponible próximamente
+            </p>
+            <div className="text-sm text-gray-500 space-y-1">
+              <p>• Ranking por frecuencia de pedidos</p>
+              <p>• Análisis de valor total por cliente</p>
+              <p>• Identificación de clientes VIP</p>
+              <p>• Patrones de compra y retención</p>
+            </div>
+            <div className="mt-4 pt-4 border-t border-blue-200">
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                En desarrollo
+              </span>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>

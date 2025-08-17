@@ -1324,87 +1324,111 @@ def get_ingresos_tipo():
 @app.route('/api/reportes/tendencia', methods=['GET'])
 def get_tendencia():
     """Endpoint para tendencia temporal"""
-    periodo = request.args.get('periodo', 'mes')
-    
-    conn = get_db_connection()
     try:
+        conn = sqlite3.connect('database.db')
+        cursor = conn.cursor()
+        
+        periodo = request.args.get('periodo', 'mes')
+        
+        # Simplificamos para mostrar datos sin filtros de fecha complicados
         if periodo == 'semana':
-            # Últimos 7 días
+            # Agrupar por fecha simple
             query = '''
                 SELECT 
-                    DATE(v.fecha) as periodo,
-                    COALESCE(SUM(CASE WHEN p.tipo = 'VFX' THEN v.total ELSE 0 END), 0) as vfx,
-                    COALESCE(SUM(CASE WHEN p.tipo = 'GFX' THEN v.total ELSE 0 END), 0) as gfx,
+                    DATE(v.fecha_creacion) as fecha,
+                    COALESCE(SUM(CASE WHEN UPPER(p.tipo) = 'VFX' THEN v.total ELSE 0 END), 0) as vfx,
+                    COALESCE(SUM(CASE WHEN UPPER(p.tipo) = 'GFX' THEN v.total ELSE 0 END), 0) as gfx,
                     COALESCE(SUM(v.total), 0) as total
                 FROM ventas v
                 JOIN productos p ON v.producto_id = p.id
-                WHERE v.fecha >= date('now', '-7 days')
-                GROUP BY DATE(v.fecha)
-                ORDER BY DATE(v.fecha) DESC
+                GROUP BY DATE(v.fecha_creacion)
+                ORDER BY DATE(v.fecha_creacion) DESC
                 LIMIT 7
             '''
-        elif periodo == 'trimestre':
-            # Últimos 3 meses
+        else:
+            # Agrupar por mes (formato simple)
             query = '''
                 SELECT 
-                    strftime('%Y-%m', v.fecha) as periodo,
-                    COALESCE(SUM(CASE WHEN p.tipo = 'VFX' THEN v.total ELSE 0 END), 0) as vfx,
-                    COALESCE(SUM(CASE WHEN p.tipo = 'GFX' THEN v.total ELSE 0 END), 0) as gfx,
+                    strftime('%Y-%m', v.fecha_creacion) as mes,
+                    COALESCE(SUM(CASE WHEN UPPER(p.tipo) = 'VFX' THEN v.total ELSE 0 END), 0) as vfx,
+                    COALESCE(SUM(CASE WHEN UPPER(p.tipo) = 'GFX' THEN v.total ELSE 0 END), 0) as gfx,
                     COALESCE(SUM(v.total), 0) as total
                 FROM ventas v
                 JOIN productos p ON v.producto_id = p.id
-                WHERE v.fecha >= date('now', '-3 months')
-                GROUP BY strftime('%Y-%m', v.fecha)
-                ORDER BY strftime('%Y-%m', v.fecha) DESC
-                LIMIT 3
-            '''
-        elif periodo == 'ano':
-            # Meses del año actual
-            query = '''
-                SELECT 
-                    strftime('%Y-%m', v.fecha) as periodo,
-                    COALESCE(SUM(CASE WHEN p.tipo = 'VFX' THEN v.total ELSE 0 END), 0) as vfx,
-                    COALESCE(SUM(CASE WHEN p.tipo = 'GFX' THEN v.total ELSE 0 END), 0) as gfx,
-                    COALESCE(SUM(v.total), 0) as total
-                FROM ventas v
-                JOIN productos p ON v.producto_id = p.id
-                WHERE strftime('%Y', v.fecha) = strftime('%Y', 'now')
-                GROUP BY strftime('%Y-%m', v.fecha)
-                ORDER BY strftime('%Y-%m', v.fecha) DESC
-                LIMIT 12
-            '''
-        else:  # mes por defecto
-            # Últimas 4 semanas
-            query = '''
-                SELECT 
-                    'Semana ' || ((julianday('now') - julianday(v.fecha)) / 7 + 1) as periodo,
-                    COALESCE(SUM(CASE WHEN p.tipo = 'VFX' THEN v.total ELSE 0 END), 0) as vfx,
-                    COALESCE(SUM(CASE WHEN p.tipo = 'GFX' THEN v.total ELSE 0 END), 0) as gfx,
-                    COALESCE(SUM(v.total), 0) as total
-                FROM ventas v
-                JOIN productos p ON v.producto_id = p.id
-                WHERE v.fecha >= date('now', '-1 month')
-                GROUP BY ((julianday('now') - julianday(v.fecha)) / 7)
-                ORDER BY ((julianday('now') - julianday(v.fecha)) / 7)
-                LIMIT 4
+                GROUP BY strftime('%Y-%m', v.fecha_creacion)
+                ORDER BY strftime('%Y-%m', v.fecha_creacion) DESC
+                LIMIT 6
             '''
         
-        resultados = conn.execute(query).fetchall()
+        cursor.execute(query)
+        resultados = cursor.fetchall()
         
+        # Si no hay ventas, usar pedidos como fallback
+        if not resultados:
+            if periodo == 'semana':
+                query_pedidos = '''
+                    SELECT 
+                        DATE(p.fecha_creacion) as fecha,
+                        COALESCE(SUM(CASE WHEN UPPER(pr.tipo) = 'VFX' THEN p.total ELSE 0 END), 0) as vfx,
+                        COALESCE(SUM(CASE WHEN UPPER(pr.tipo) = 'GFX' THEN p.total ELSE 0 END), 0) as gfx,
+                        COALESCE(SUM(p.total), 0) as total
+                    FROM pedidos p
+                    JOIN productos pr ON p.producto_id = pr.id
+                    GROUP BY DATE(p.fecha_creacion)
+                    ORDER BY DATE(p.fecha_creacion) DESC
+                    LIMIT 7
+                '''
+            else:
+                query_pedidos = '''
+                    SELECT 
+                        strftime('%Y-%m', p.fecha_creacion) as mes,
+                        COALESCE(SUM(CASE WHEN UPPER(pr.tipo) = 'VFX' THEN p.total ELSE 0 END), 0) as vfx,
+                        COALESCE(SUM(CASE WHEN UPPER(pr.tipo) = 'GFX' THEN p.total ELSE 0 END), 0) as gfx,
+                        COALESCE(SUM(p.total), 0) as total
+                    FROM pedidos p
+                    JOIN productos pr ON p.producto_id = pr.id
+                    GROUP BY strftime('%Y-%m', p.fecha_creacion)
+                    ORDER BY strftime('%Y-%m', p.fecha_creacion) DESC
+                    LIMIT 6
+                '''
+            cursor.execute(query_pedidos)
+            resultados = cursor.fetchall()
+        
+        # Formatear resultados
         tendencia = []
-        for row in resultados:
+        for i, row in enumerate(resultados):
+            if periodo == 'semana':
+                periodo_nombre = f"Día {i+1}" if row[0] else f"Día {i+1}"
+            else:
+                # Convertir YYYY-MM a nombre más legible
+                if row[0]:
+                    try:
+                        año, mes = row[0].split('-')
+                        meses = {
+                            '01': 'Enero', '02': 'Febrero', '03': 'Marzo', '04': 'Abril',
+                            '05': 'Mayo', '06': 'Junio', '07': 'Julio', '08': 'Agosto',
+                            '09': 'Septiembre', '10': 'Octubre', '11': 'Noviembre', '12': 'Diciembre'
+                        }
+                        mes_nombre = meses.get(mes, f'Mes {mes}')
+                        periodo_nombre = f'{mes_nombre} {año}'
+                    except:
+                        periodo_nombre = f'Periodo {i+1}'
+                else:
+                    periodo_nombre = f'Periodo {i+1}'
+            
             tendencia.append({
-                'periodo': row['periodo'],
-                'vfx': round(row['vfx'], 2),
-                'gfx': round(row['gfx'], 2),
-                'total': round(row['total'], 2)
+                'periodo': periodo_nombre,
+                'vfx': float(row[1]) if row[1] else 0,
+                'gfx': float(row[2]) if row[2] else 0,
+                'total': float(row[3]) if row[3] else 0
             })
         
         conn.close()
+        print(f"📈 Tendencia calculada: {len(tendencia)} periodos")
         return jsonify(tendencia)
         
     except Exception as e:
-        conn.close()
+        print(f"❌ Error en tendencia: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/reportes/productos-top', methods=['GET'])

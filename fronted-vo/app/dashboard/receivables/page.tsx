@@ -121,7 +121,7 @@ export default function ReceivablesPage() {
     }
     
     try {
-      const response = await fetch('${API_BASE_URL}/api/cuentas-por-cobrar/all', {
+      const response = await fetch(`${API_BASE_URL}/api/cuentas-por-cobrar/all`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' }
       })
@@ -142,7 +142,7 @@ export default function ReceivablesPage() {
     e.preventDefault()
     
     try {
-      const response = await fetch('${API_BASE_URL}/api/cuentas-por-cobrar', {
+      const response = await fetch(`${API_BASE_URL}/api/cuentas-por-cobrar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
