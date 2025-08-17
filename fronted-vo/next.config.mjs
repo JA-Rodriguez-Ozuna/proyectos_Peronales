@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Configuracion basica para Vercel
+  reactStrictMode: true,
+  swcMinify: true,
+  
   eslint: {
     ignoreDuringBuilds: true,
   },
@@ -10,13 +14,9 @@ const nextConfig = {
     unoptimized: true,
   },
   
-  // Configuracion para Vercel
-  output: 'export',
-  trailingSlash: true,
-  
-  // Variables de entorno publicas
+  // Variables de entorno
   env: {
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'https://plus-graphics.onrender.com',
   },
   
   // Solo proxy en desarrollo
@@ -25,7 +25,7 @@ const nextConfig = {
       return [
         {
           source: '/api/:path*',
-          destination: 'http://localhost:5000/api/:path*',
+          destination: `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/:path*`,
         },
       ];
     }
