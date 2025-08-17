@@ -1261,44 +1261,64 @@ def get_reporte_dashboard():
 @app.route('/api/reportes/ingresos-tipo', methods=['GET'])
 def get_ingresos_tipo():
     """Endpoint para ingresos por tipo GFX/VFX"""
-    periodo = request.args.get('periodo', 'mes')
-    inicio, fin, _, _ = get_periodo_fechas(periodo)
-    
-    conn = get_db_connection()
     try:
-        ingresos = conn.execute('''
+        conn = sqlite3.connect('database.db')
+        cursor = conn.cursor()
+        
+        # PRIMERO: Intentar con VENTAS
+        cursor.execute('''
             SELECT 
-                p.tipo,
-                COALESCE(SUM(v.total), 0) as total_ingresos
+                UPPER(p.tipo) as tipo,
+                COALESCE(SUM(v.total), 0) as total_ingresos,
+                COUNT(v.id) as cantidad
             FROM ventas v
             JOIN productos p ON v.producto_id = p.id
-            WHERE v.fecha >= ? AND v.fecha <= ?
-            GROUP BY p.tipo
-        ''', (inicio, fin)).fetchall()
+            GROUP BY UPPER(p.tipo)
+            ORDER BY total_ingresos DESC
+        ''')
+        ingresos_data = cursor.fetchall()
         
-        total_general = sum(row['total_ingresos'] for row in ingresos)
+        # FALLBACK: Si no hay ventas, usar PEDIDOS
+        if not ingresos_data:
+            cursor.execute('''
+                SELECT 
+                    UPPER(p.tipo) as tipo,
+                    COALESCE(SUM(pe.total), 0) as total_ingresos,
+                    COUNT(pe.id) as cantidad
+                FROM pedidos pe
+                JOIN productos p ON pe.producto_id = p.id
+                GROUP BY UPPER(p.tipo)
+                ORDER BY total_ingresos DESC
+            ''')
+            ingresos_data = cursor.fetchall()
+        
+        # Calcular total general
+        total_general = sum(row[1] for row in ingresos_data) if ingresos_data else 1
         
         resultado = {}
-        for row in ingresos:
-            tipo = row['tipo'].upper()
-            total = row['total_ingresos']
+        for row in ingresos_data:
+            tipo = row[0]  # Ya viene en UPPER desde la query
+            total = float(row[1])
+            cantidad = row[2]
             porcentaje = round((total / total_general * 100), 1) if total_general > 0 else 0
             resultado[tipo] = {
                 'total': round(total, 2),
-                'porcentaje': porcentaje
+                'porcentaje': porcentaje,
+                'cantidad': cantidad
             }
         
         # Asegurar que siempre tengamos GFX y VFX
         if 'GFX' not in resultado:
-            resultado['GFX'] = {'total': 0, 'porcentaje': 0}
+            resultado['GFX'] = {'total': 0, 'porcentaje': 0, 'cantidad': 0}
         if 'VFX' not in resultado:
-            resultado['VFX'] = {'total': 0, 'porcentaje': 0}
+            resultado['VFX'] = {'total': 0, 'porcentaje': 0, 'cantidad': 0}
         
         conn.close()
+        print(f"💰 Ingresos por tipo calculados: {resultado}")
         return jsonify(resultado)
         
     except Exception as e:
-        conn.close()
+        print(f"❌ Error en ingresos-tipo: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/reportes/tendencia', methods=['GET'])
@@ -1390,12 +1410,12 @@ def get_tendencia():
 @app.route('/api/reportes/productos-top', methods=['GET'])
 def get_productos_top():
     """Endpoint para productos más vendidos"""
-    periodo = request.args.get('periodo', 'mes')
-    inicio, fin, _, _ = get_periodo_fechas(periodo)
-    
-    conn = get_db_connection()
     try:
-        productos = conn.execute('''
+        conn = sqlite3.connect('database.db')
+        cursor = conn.cursor()
+        
+        # PRIMERO: Intentar con VENTAS (datos reales)
+        cursor.execute('''
             SELECT 
                 p.nombre,
                 p.tipo,
@@ -1403,68 +1423,102 @@ def get_productos_top():
                 COALESCE(SUM(v.total), 0) as ingresos
             FROM ventas v
             JOIN productos p ON v.producto_id = p.id
-            WHERE v.fecha >= ? AND v.fecha <= ?
             GROUP BY p.id, p.nombre, p.tipo
             ORDER BY ingresos DESC
             LIMIT 10
-        ''', (inicio, fin)).fetchall()
+        ''')
+        productos_data = cursor.fetchall()
+        
+        # FALLBACK: Si no hay ventas, usar PEDIDOS
+        if not productos_data:
+            cursor.execute('''
+                SELECT 
+                    p.nombre,
+                    p.tipo,
+                    COUNT(pe.id) as pedidos,
+                    COALESCE(SUM(pe.total), 0) as ingresos
+                FROM pedidos pe
+                JOIN productos p ON pe.producto_id = p.id
+                GROUP BY p.id, p.nombre, p.tipo
+                ORDER BY ingresos DESC
+                LIMIT 10
+            ''')
+            productos_data = cursor.fetchall()
         
         resultado = []
-        for row in productos:
-            promedio = row['ingresos'] / row['pedidos'] if row['pedidos'] > 0 else 0
+        for row in productos_data:
+            promedio = row[3] / row[2] if row[2] > 0 else 0
             resultado.append({
-                'nombre': row['nombre'],
-                'tipo': row['tipo'].upper(),
-                'pedidos': row['pedidos'],
-                'ingresos': round(row['ingresos'], 2),
-                'promedio': round(promedio, 2)
+                'nombre': row[0],
+                'tipo': row[1].upper() if row[1] else 'N/A',
+                'pedidos': row[2],
+                'ingresos': round(float(row[3]), 2),
+                'promedio': round(float(promedio), 2)
             })
         
         conn.close()
+        print(f"📊 Productos más vendidos encontrados: {len(resultado)}")
         return jsonify(resultado)
         
     except Exception as e:
-        conn.close()
+        print(f"❌ Error en productos-top: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/reportes/clientes-top', methods=['GET'])
 def get_clientes_top():
     """Endpoint para mejores clientes"""
-    periodo = request.args.get('periodo', 'mes')
-    inicio, fin, _, _ = get_periodo_fechas(periodo)
-    
-    conn = get_db_connection()
     try:
-        clientes = conn.execute('''
+        conn = sqlite3.connect('database.db')
+        cursor = conn.cursor()
+        
+        # PRIMERO: Intentar con VENTAS (datos reales)
+        cursor.execute('''
             SELECT 
                 c.nombre,
                 COUNT(v.id) as pedidos,
                 COALESCE(SUM(v.total), 0) as ingresos,
-                MAX(v.fecha) as ultimo_pedido
+                MAX(v.fecha_creacion) as ultimo_pedido
             FROM ventas v
             JOIN clientes c ON v.cliente_id = c.id
-            WHERE v.fecha >= ? AND v.fecha <= ?
             GROUP BY c.id, c.nombre
             ORDER BY ingresos DESC
             LIMIT 10
-        ''', (inicio, fin)).fetchall()
+        ''')
+        clientes_data = cursor.fetchall()
+        
+        # FALLBACK: Si no hay ventas, usar PEDIDOS
+        if not clientes_data:
+            cursor.execute('''
+                SELECT 
+                    c.nombre,
+                    COUNT(pe.id) as pedidos,
+                    COALESCE(SUM(pe.total), 0) as ingresos,
+                    MAX(pe.fecha_creacion) as ultimo_pedido
+                FROM pedidos pe
+                JOIN clientes c ON pe.cliente_id = c.id
+                GROUP BY c.id, c.nombre
+                ORDER BY ingresos DESC
+                LIMIT 10
+            ''')
+            clientes_data = cursor.fetchall()
         
         resultado = []
-        for row in clientes:
-            promedio = row['ingresos'] / row['pedidos'] if row['pedidos'] > 0 else 0
+        for row in clientes_data:
+            promedio = row[2] / row[1] if row[1] > 0 else 0
             resultado.append({
-                'nombre': row['nombre'],
-                'pedidos': row['pedidos'],
-                'ingresos': round(row['ingresos'], 2),
-                'promedio': round(promedio, 2),
-                'ultimo_pedido': row['ultimo_pedido']
+                'nombre': row[0],
+                'pedidos': row[1],
+                'ingresos': round(float(row[2]), 2),
+                'promedio': round(float(promedio), 2),
+                'ultimo_pedido': row[3]
             })
         
         conn.close()
+        print(f"👥 Mejores clientes encontrados: {len(resultado)}")
         return jsonify(resultado)
         
     except Exception as e:
-        conn.close()
+        print(f"❌ Error en clientes-top: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/reportes/exportar', methods=['GET'])
