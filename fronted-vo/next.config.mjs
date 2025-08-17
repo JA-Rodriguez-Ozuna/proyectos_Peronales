@@ -10,22 +10,26 @@ const nextConfig = {
     unoptimized: true,
   },
   
-  // Configuracion para produccion full-stack
-  output: 'standalone',
-  
-  // Proxy para APIs - conectar con Flask backend
-  async rewrites() {
-    return [
-      {
-        source: '/api/:path*',
-        destination: `${process.env.BACKEND_URL || 'http://localhost:5000'}/api/:path*`,
-      },
-    ]
-  },
+  // Configuracion para Vercel
+  output: 'export',
+  trailingSlash: true,
   
   // Variables de entorno publicas
   env: {
-    BACKEND_URL: process.env.BACKEND_URL || 'http://localhost:5000',
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
+  },
+  
+  // Solo proxy en desarrollo
+  async rewrites() {
+    if (process.env.NODE_ENV === 'development') {
+      return [
+        {
+          source: '/api/:path*',
+          destination: 'http://localhost:5000/api/:path*',
+        },
+      ];
+    }
+    return [];
   }
 }
 

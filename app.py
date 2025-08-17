@@ -37,12 +37,21 @@ def get_db_connection():
 
 app = Flask(__name__)
 
-# Configurar CORS para permitir frontend en desarrollo y producción
+# CORS configurado para Vercel + desarrollo local
 CORS(app, origins=[
     "http://localhost:3000",           # Desarrollo local
-    "https://*.onrender.com",          # Render deploy
+    "https://*.vercel.app",            # Cualquier subdominio Vercel
+    "https://vercel.app",
+    "https://*.onrender.com",          # Render por si acaso
     "https://plus-graphics.onrender.com"  # URL específica producción
 ])
+
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
 # -------------------- RUTAS DE AUTENTICACIÓN --------------------
 @app.route('/api/auth/login', methods=['POST'])
 def login():
@@ -1713,17 +1722,17 @@ def api_test():
     })
 
 if __name__ == '__main__':
-    init_db()  # Inicializar la base de datos al arrancar
+    init_db()
     
-    # Configuracion para produccion full-stack
+    # Configuracion simple para Render
     import os
-    backend_port = int(os.environ.get('FLASK_PORT', 5000))
+    port = int(os.environ.get('PORT', 5000))
     host = '0.0.0.0'
-    debug_mode = os.environ.get('FLASK_ENV', 'production') != 'production'
+    debug = False  # Siempre False en produccion
     
-    print(f"🚀 Iniciando Flask backend en puerto {backend_port}")
-    print(f"🌍 CORS configurado para frontend Next.js")
-    print(f"🔧 Debug mode: {debug_mode}")
+    print(f"🚀 Plus Graphics Backend iniciando en puerto {port}")
+    print(f"🌐 CORS configurado para Vercel")
+    print(f"📊 Base de datos inicializada")
     
-    app.run(host=host, port=backend_port, debug=debug_mode)
+    app.run(host=host, port=port, debug=debug)
 

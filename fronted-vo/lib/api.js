@@ -1,5 +1,5 @@
-// lib/api.js
-const API_BASE_URL = 'http://localhost:5000/api'
+// Configuracion centralizada para llamadas API
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
 
 const makeRequest = async (url, options = {}) => {
   const config = {
@@ -16,10 +16,15 @@ const makeRequest = async (url, options = {}) => {
   }
 
   try {
-    const response = await fetch(`${API_BASE_URL}${url}`, config)
+    const response = await fetch(`${API_BASE_URL}/api${url}`, config)
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+    
     return response
   } catch (error) {
-    console.error('API Error:', error)
+    console.error(`API call failed for ${url}:`, error)
     throw error
   }
 }
