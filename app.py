@@ -36,7 +36,13 @@ def get_db_connection():
     return conn
 
 app = Flask(__name__)
-CORS(app)  # Habilita CORS para todas las rutas
+
+# Configurar CORS para permitir frontend en desarrollo y producción
+CORS(app, origins=[
+    "http://localhost:3000",           # Desarrollo local
+    "https://*.onrender.com",          # Render deploy
+    "https://plus-graphics.onrender.com"  # URL específica producción
+])
 # -------------------- RUTAS DE AUTENTICACIÓN --------------------
 @app.route('/api/auth/login', methods=['POST'])
 def login():
@@ -1709,11 +1715,15 @@ def api_test():
 if __name__ == '__main__':
     init_db()  # Inicializar la base de datos al arrancar
     
-    # Configuracion para produccion (Render)
+    # Configuracion para produccion full-stack
     import os
-    port = int(os.environ.get('PORT', 5000))
-    host = os.environ.get('HOST', '0.0.0.0')
+    backend_port = int(os.environ.get('FLASK_PORT', 5000))
+    host = '0.0.0.0'
     debug_mode = os.environ.get('FLASK_ENV', 'production') != 'production'
     
-    app.run(host=host, port=port, debug=debug_mode)
+    print(f"🚀 Iniciando Flask backend en puerto {backend_port}")
+    print(f"🌍 CORS configurado para frontend Next.js")
+    print(f"🔧 Debug mode: {debug_mode}")
+    
+    app.run(host=host, port=backend_port, debug=debug_mode)
 
