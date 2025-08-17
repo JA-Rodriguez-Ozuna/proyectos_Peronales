@@ -272,12 +272,12 @@ export default function OrdersPage() {
 
                 <div>
                   <Label htmlFor="status-filter">Estado</Label>
-                  <Select value={filters.status} onValueChange={(value) => setFilters({ ...filters, status: value })}>
+                  <Select value={filters.status || "all"} onValueChange={(value) => setFilters({ ...filters, status: value === "all" ? "" : value })}>
                     <SelectTrigger>
                       <SelectValue placeholder="Todos los estados" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Todos</SelectItem>
+                      <SelectItem value="all">Todos</SelectItem>
                       {uniqueStatuses.map((status) => (
                         <SelectItem key={status} value={status}>
                           {status}
@@ -289,12 +289,12 @@ export default function OrdersPage() {
 
                 <div>
                   <Label htmlFor="type-filter">Tipo</Label>
-                  <Select value={filters.type} onValueChange={(value) => setFilters({ ...filters, type: value })}>
+                  <Select value={filters.type || "all"} onValueChange={(value) => setFilters({ ...filters, type: value === "all" ? "" : value })}>
                     <SelectTrigger>
                       <SelectValue placeholder="GFX / VFX" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Todos</SelectItem>
+                      <SelectItem value="all">Todos</SelectItem>
                       <SelectItem value="gfx">GFX</SelectItem>
                       <SelectItem value="vfx">VFX</SelectItem>
                     </SelectContent>
@@ -304,14 +304,14 @@ export default function OrdersPage() {
                 <div>
                   <Label htmlFor="assignee-filter">Encargado</Label>
                   <Select
-                    value={filters.assignedTo}
-                    onValueChange={(value) => setFilters({ ...filters, assignedTo: value })}
+                    value={filters.assignedTo || "all"}
+                    onValueChange={(value) => setFilters({ ...filters, assignedTo: value === "all" ? "" : value })}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Todos los encargados" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Todos</SelectItem>
+                      <SelectItem value="all">Todos</SelectItem>
                       {uniqueAssignees.map((assignee) => (
                         <SelectItem key={assignee} value={assignee}>
                           {assignee}
