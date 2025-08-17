@@ -70,6 +70,8 @@ export default function ReportsPage() {
     setError(null)
     
     try {
+      console.log('🔄 Cargando datos de reportes para periodo:', periodoSeleccionado)
+      
       const endpoints = [
         `${API_BASE_URL}/api/reportes/dashboard?periodo=${periodoSeleccionado}`,
         `${API_BASE_URL}/api/reportes/ingresos-tipo?periodo=${periodoSeleccionado}`,
@@ -82,6 +84,14 @@ export default function ReportsPage() {
         endpoints.map(url => fetch(url).then(res => res.json()))
       )
       
+      console.log('📊 Datos de reportes cargados:', {
+        dashboard: responses[0],
+        ingresos: responses[1],
+        tendencia: responses[2],
+        productos: responses[3],
+        clientes: responses[4]
+      })
+      
       setDashboardData(responses[0])
       setIngresosData(responses[1])
       setTendenciaData(responses[2] || [])
@@ -90,7 +100,7 @@ export default function ReportsPage() {
       
     } catch (err) {
       setError('Error al cargar los datos de reportes')
-      console.error('Error:', err)
+      console.error('❌ Error cargando reportes:', err)
     } finally {
       setLoading(false)
     }

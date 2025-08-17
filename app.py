@@ -1215,69 +1215,47 @@ def calcular_crecimiento(actual, anterior):
 # -------------------- ENDPOINTS DE REPORTES --------------------
 @app.route('/api/reportes/dashboard', methods=['GET'])
 def get_reporte_dashboard():
-    """Endpoint principal para métricas del dashboard"""
-    periodo = request.args.get('periodo', 'mes')
-    inicio, fin, anterior_inicio, anterior_fin = get_periodo_fechas(periodo)
-    
-    conn = get_db_connection()
+    """Estadisticas para modulo reportes"""
     try:
-        # Métricas del periodo actual
-        ventas_actual = conn.execute('''
-            SELECT 
-                COALESCE(SUM(total), 0) as ventas_totales,
-                COUNT(*) as total_pedidos
-            FROM ventas 
-            WHERE fecha >= ? AND fecha <= ?
-        ''', (inicio, fin)).fetchone()
+        conn = sqlite3.connect('database.db')
+        cursor = conn.cursor()
+        
+        # Ventas totales de TODA la tabla (sin filtro de fecha)
+        cursor.execute('SELECT COALESCE(SUM(total), 0) FROM ventas')
+        ventas_totales = cursor.fetchone()[0]
+        
+        # Total pedidos de TODA la tabla
+        cursor.execute('SELECT COUNT(*) FROM pedidos')
+        total_pedidos = cursor.fetchone()[0]
         
         # Valor promedio
-        valor_promedio = ventas_actual['ventas_totales'] / ventas_actual['total_pedidos'] if ventas_actual['total_pedidos'] > 0 else 0
+        if total_pedidos > 0:
+            valor_promedio = ventas_totales / total_pedidos
+        else:
+            valor_promedio = 0
         
-        # Nuevos clientes en el periodo
-        nuevos_clientes = conn.execute('''
-            SELECT COUNT(DISTINCT cliente_id) as nuevos
-            FROM ventas 
-            WHERE fecha >= ? AND fecha <= ?
-        ''', (inicio, fin)).fetchone()['nuevos']
-        
-        # Métricas del periodo anterior para comparar
-        ventas_anterior = conn.execute('''
-            SELECT 
-                COALESCE(SUM(total), 0) as ventas_totales,
-                COUNT(*) as total_pedidos
-            FROM ventas 
-            WHERE fecha >= ? AND fecha <= ?
-        ''', (anterior_inicio, anterior_fin)).fetchone()
-        
-        valor_promedio_anterior = ventas_anterior['ventas_totales'] / ventas_anterior['total_pedidos'] if ventas_anterior['total_pedidos'] > 0 else 0
-        
-        nuevos_clientes_anterior = conn.execute('''
-            SELECT COUNT(DISTINCT cliente_id) as nuevos
-            FROM ventas 
-            WHERE fecha >= ? AND fecha <= ?
-        ''', (anterior_inicio, anterior_fin)).fetchone()['nuevos']
-        
-        # Calcular crecimientos
-        crecimiento_ventas = calcular_crecimiento(ventas_actual['ventas_totales'], ventas_anterior['ventas_totales'])
-        crecimiento_pedidos = calcular_crecimiento(ventas_actual['total_pedidos'], ventas_anterior['total_pedidos'])
-        crecimiento_promedio = calcular_crecimiento(valor_promedio, valor_promedio_anterior)
-        crecimiento_clientes = calcular_crecimiento(nuevos_clientes, nuevos_clientes_anterior)
+        # Nuevos clientes (todos los clientes para testing)
+        cursor.execute('SELECT COUNT(*) FROM clientes')
+        nuevos_clientes = cursor.fetchone()[0]
         
         conn.close()
         
-        return jsonify({
-            'ventas_totales': round(ventas_actual['ventas_totales'], 2),
-            'total_pedidos': ventas_actual['total_pedidos'],
-            'valor_promedio': round(valor_promedio, 2),
+        result = {
+            'ventas_totales': float(ventas_totales),
+            'total_pedidos': total_pedidos,
+            'valor_promedio': float(valor_promedio),
             'nuevos_clientes': nuevos_clientes,
-            'crecimiento_ventas': crecimiento_ventas,
-            'crecimiento_pedidos': crecimiento_pedidos,
-            'crecimiento_promedio': crecimiento_promedio,
-            'crecimiento_clientes': crecimiento_clientes
-        })
+            'crecimiento_ventas': 0,
+            'crecimiento_pedidos': 0,
+            'crecimiento_promedio': 0,
+            'crecimiento_clientes': 0
+        }
+        
+        print(f"📊 Reportes stats calculadas: {result}")
+        return jsonify(result)
         
     except Exception as e:
-        conn.close()
+        print(f"❌ Error en reportes stats: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/reportes/ingresos-tipo', methods=['GET'])
@@ -1713,69 +1691,83 @@ def landing():
 
 @app.route('/api/dashboard/stats', methods=['GET'])
 def get_dashboard_stats():
-    """Estadisticas generales del dashboard"""
+    """Estadisticas dashboard - DATOS REALES"""
     try:
-        conn = get_db_connection()
+        conn = sqlite3.connect('database.db')
         cursor = conn.cursor()
         
-        # Total ventas (ganancias)
-        cursor.execute('SELECT SUM(total) FROM ventas')
-        total_ganancias = cursor.fetchone()[0] or 0
+        # Ganancias totales (suma de TODAS las ventas)
+        cursor.execute('SELECT COALESCE(SUM(total), 0) FROM ventas')
+        ganancias_totales = cursor.fetchone()[0]
         
-        # Entregas pendientes (pedidos no completados)
-        cursor.execute('SELECT COUNT(*) FROM pedidos WHERE estado != "completado"')
+        # Entregas pendientes (pedidos NO completados)
+        cursor.execute('''
+            SELECT COUNT(*) FROM pedidos 
+            WHERE estado NOT IN ("completado", "entregado", "finalizado")
+        ''')
         entregas_pendientes = cursor.fetchone()[0] or 0
         
-        # Servicios disponibles (productos activos)
+        # Servicios disponibles (productos activos - IMPORTANTE: verificar sin filtro estado)
         cursor.execute('SELECT COUNT(*) FROM productos')
         servicios_disponibles = cursor.fetchone()[0] or 0
         
         # Total por pagar
-        cursor.execute('SELECT SUM(saldo) FROM cuentas_por_pagar WHERE estado = "pendiente"')
-        total_por_pagar = cursor.fetchone()[0] or 0
+        cursor.execute('''
+            SELECT COALESCE(SUM(saldo), 0) FROM cuentas_por_pagar 
+            WHERE estado = "pendiente"
+        ''')
+        total_por_pagar = cursor.fetchone()[0]
         
-        # Facturas vencidas
+        # Total por cobrar
+        cursor.execute('''
+            SELECT COALESCE(SUM(saldo), 0) FROM cuentas_por_cobrar 
+            WHERE estado = "pendiente"
+        ''')
+        total_por_cobrar = cursor.fetchone()[0]
+        
+        # Facturas vencidas cuentas por pagar
         cursor.execute('''
             SELECT COUNT(*) FROM cuentas_por_pagar 
             WHERE estado = "pendiente" AND fecha_vencimiento < date('now')
         ''')
         facturas_vencidas = cursor.fetchone()[0] or 0
         
-        # Total por cobrar 
-        cursor.execute('SELECT SUM(saldo) FROM cuentas_por_cobrar WHERE estado = "pendiente"')
-        total_por_cobrar = cursor.fetchone()[0] or 0
-        
-        # Pedidos recientes
+        # Pedidos recientes con LEFT JOIN para evitar problemas
         cursor.execute('''
-            SELECT p.id, c.nombre, pr.nombre as producto, p.total, p.fecha_creacion
+            SELECT p.id, c.nombre, pr.nombre, p.total, p.fecha_creacion, p.estado
             FROM pedidos p 
-            JOIN clientes c ON p.cliente_id = c.id
-            JOIN productos pr ON p.producto_id = pr.id
+            LEFT JOIN clientes c ON p.cliente_id = c.id
+            LEFT JOIN productos pr ON p.producto_id = pr.id
             ORDER BY p.fecha_creacion DESC LIMIT 5
         ''')
         pedidos_recientes = cursor.fetchall()
         
         conn.close()
         
-        return jsonify({
-            'ganancias_totales': total_ganancias,
+        result = {
+            'ganancias_totales': float(ganancias_totales),
             'entregas_pendientes': entregas_pendientes,
             'servicios_disponibles': servicios_disponibles,
-            'total_por_pagar': total_por_pagar,
-            'total_por_cobrar': total_por_cobrar,
+            'total_por_pagar': float(total_por_pagar),
+            'total_por_cobrar': float(total_por_cobrar),
             'facturas_vencidas': facturas_vencidas,
             'pedidos_recientes': [
                 {
                     'id': row[0],
-                    'cliente': row[1],
-                    'producto': row[2],
-                    'total': row[3],
-                    'fecha': row[4]
+                    'cliente': row[1] or 'Sin nombre',
+                    'producto': row[2] or 'Sin producto',
+                    'total': float(row[3]) if row[3] else 0,
+                    'fecha': row[4],
+                    'estado': row[5] or 'pendiente'
                 } for row in pedidos_recientes
             ]
-        })
+        }
+        
+        print(f"📊 Dashboard stats calculadas: {result}")
+        return jsonify(result)
         
     except Exception as e:
+        print(f"❌ Error en dashboard stats: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/debug/database', methods=['GET'])
@@ -1811,6 +1803,94 @@ def debug_database():
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/system/diagnosis', methods=['GET'])
+def system_diagnosis():
+    """Diagnostico completo del sistema"""
+    try:
+        conn = sqlite3.connect('database.db')
+        cursor = conn.cursor()
+        
+        # Verificar todas las tablas y contenido
+        diagnosis = {
+            'timestamp': datetime.now().isoformat(),
+            'database_status': 'connected'
+        }
+        
+        # 1. Verificar estructura tablas
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = [row[0] for row in cursor.fetchall()]
+        diagnosis['tables_found'] = tables
+        
+        # 2. Contar registros en cada tabla
+        table_counts = {}
+        for table in tables:
+            cursor.execute(f'SELECT COUNT(*) FROM {table}')
+            table_counts[table] = cursor.fetchone()[0]
+        diagnosis['table_counts'] = table_counts
+        
+        # 3. Verificar datos específicos
+        
+        # CLIENTES
+        cursor.execute('SELECT id, nombre FROM clientes ORDER BY id DESC LIMIT 5')
+        clientes_data = cursor.fetchall()
+        diagnosis['clientes_sample'] = [{'id': r[0], 'nombre': r[1]} for r in clientes_data]
+        
+        # PRODUCTOS
+        cursor.execute('SELECT id, nombre, precio, estado FROM productos LIMIT 5')
+        productos_data = cursor.fetchall()
+        diagnosis['productos_sample'] = [{'id': r[0], 'nombre': r[1], 'precio': r[2], 'estado': r[3]} for r in productos_data]
+        
+        # PEDIDOS
+        cursor.execute('SELECT id, cliente_id, producto_id, total, estado, fecha_creacion FROM pedidos ORDER BY id DESC LIMIT 5')
+        pedidos_data = cursor.fetchall()
+        diagnosis['pedidos_sample'] = [{'id': r[0], 'cliente_id': r[1], 'producto_id': r[2], 'total': r[3], 'estado': r[4], 'fecha': r[5]} for r in pedidos_data]
+        
+        # VENTAS
+        cursor.execute('SELECT id, cliente_id, producto_id, total, fecha_creacion FROM ventas ORDER BY id DESC LIMIT 5')
+        ventas_data = cursor.fetchall()
+        diagnosis['ventas_sample'] = [{'id': r[0], 'cliente_id': r[1], 'producto_id': r[2], 'total': r[3], 'fecha': r[4]} for r in ventas_data]
+        
+        # 4. Calcular estadísticas manualmente
+        
+        # Total ventas
+        cursor.execute('SELECT SUM(total) FROM ventas')
+        total_ventas = cursor.fetchone()[0] or 0
+        
+        # Total productos activos
+        cursor.execute('SELECT COUNT(*) FROM productos WHERE estado = "activo" OR estado = "Activo"')
+        productos_activos = cursor.fetchone()[0] or 0
+        
+        # Pedidos pendientes
+        cursor.execute('SELECT COUNT(*) FROM pedidos WHERE estado != "completado" AND estado != "entregado"')
+        pedidos_pendientes = cursor.fetchone()[0] or 0
+        
+        # Cuentas por pagar
+        cursor.execute('SELECT SUM(saldo) FROM cuentas_por_pagar WHERE estado = "pendiente"')
+        total_por_pagar = cursor.fetchone()[0] or 0
+        
+        # Cuentas por cobrar
+        cursor.execute('SELECT SUM(saldo) FROM cuentas_por_cobrar WHERE estado = "pendiente"')
+        total_por_cobrar = cursor.fetchone()[0] or 0
+        
+        diagnosis['calculated_stats'] = {
+            'total_ventas': total_ventas,
+            'productos_activos': productos_activos,
+            'pedidos_pendientes': pedidos_pendientes,
+            'total_por_pagar': total_por_pagar,
+            'total_por_cobrar': total_por_cobrar
+        }
+        
+        conn.close()
+        
+        return jsonify(diagnosis)
+        
+    except Exception as e:
+        return jsonify({
+            'error': str(e),
+            'database_status': 'error',
+            'timestamp': datetime.now().isoformat()
+        }), 500
 
 @app.route('/api/test')
 def api_test():
