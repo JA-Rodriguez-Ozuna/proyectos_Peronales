@@ -1646,6 +1646,66 @@ def exportar_reporte():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/')
+def landing():
+    """Landing page mientras se carga frontend"""
+    return '''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Plus Graphics - Sistema de Gestión</title>
+        <style>
+            body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
+            .btn { background: #007bff; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 10px; }
+            .btn:hover { background: #0056b3; }
+            h1 { color: #333; }
+            .credentials { background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; }
+        </style>
+    </head>
+    <body>
+        <h1>🎯 Plus Graphics - Sistema de Gestión</h1>
+        <p>Sistema integral de gestión empresarial para servicios GFX/VFX</p>
+        
+        <div class="credentials">
+            <h3>📋 Credenciales de Acceso:</h3>
+            <p><strong>Administrador:</strong><br>
+            📧 admin@plusgraphics.com<br>
+            🔐 PlusGraphics2024!</p>
+            
+            <p><strong>Empleado:</strong><br>
+            📧 empleado@plusgraphics.com<br>
+            🔐 Empleado2024!</p>
+        </div>
+        
+        <a href="/api/test" class="btn">🔧 Probar API</a>
+        <a href="/api/reportes/dashboard?periodo=mes" class="btn">📊 Ver Estadísticas</a>
+        
+        <h3>📱 Módulos Disponibles via API:</h3>
+        <ul>
+            <li>👥 Gestión de Clientes</li>
+            <li>📦 Catálogo de Productos/Servicios</li>
+            <li>🛒 Control de Pedidos</li>
+            <li>💰 Registro de Ventas</li>
+            <li>📈 Cuentas por Cobrar</li>
+            <li>📉 Cuentas por Pagar</li>
+            <li>📊 Reportes y Analytics</li>
+        </ul>
+        
+        <p><small>Sistema desarrollado para Plus Graphics - Empresa GFX/VFX</small></p>
+    </body>
+    </html>
+    '''
+
+@app.route('/api/test')
+def api_test():
+    """Endpoint de prueba para verificar funcionamiento"""
+    return jsonify({
+        'status': 'success',
+        'message': 'API Plus Graphics funcionando correctamente',
+        'modules': ['clientes', 'productos', 'pedidos', 'ventas', 'cuentas-cobrar', 'cuentas-pagar', 'reportes'],
+        'timestamp': datetime.now().isoformat()
+    })
+
 if __name__ == '__main__':
     init_db()  # Inicializar la base de datos al arrancar
     

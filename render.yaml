@@ -1,9 +1,11 @@
 services:
   - type: web
-    name: plus-graphics
-    runtime: python3
+    name: plus-graphics-fullstack
+    env: node
     plan: free
-    buildCommand: pip install -r requirements.txt
+    buildCommand: |
+      pip install -r requirements.txt
+      cd fronted-vo && npm install --legacy-peer-deps && npm run build
     startCommand: python app.py
     envVars:
       - key: ADMIN_EMAIL
